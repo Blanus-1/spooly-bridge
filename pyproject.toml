@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spooly-bridge"
+version = "1.2.0"
+description = "Verbindet Klipper/Moonraker 3D-Drucker mit Spooly"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Tobias Terzer"}
+]
+keywords = ["3d-printing", "klipper", "moonraker", "spooly", "filament"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Printing",
+]
+
+# Keine externen Abhaengigkeiten — nutzt nur die Python-Standardbibliothek!
+dependencies = []
+
+[project.scripts]
+spooly-bridge = "spooly_bridge.__main__:main"
+
+[project.urls]
+Homepage = "https://spooly.eu"
+Repository = "https://github.com/Blanus-1/spooly-bridge"
+Issues = "https://github.com/Blanus-1/spooly-bridge/issues"

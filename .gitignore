@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.spooly-bridge.json
+.env
+.venv/
+venv/
+.claude-flow/
