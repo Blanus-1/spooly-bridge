@@ -218,7 +218,11 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
 # ── Gemeinsame Sync-Funktionen ─────────────────────
 
 def _sende_heartbeat(poller, uploader, log):
-    """Heartbeat an Spooly senden. Gibt True zurueck wenn erfolgreich."""
+    """Heartbeat an Spooly senden. Gibt True zurueck wenn erfolgreich.
+
+    Prueft auch ob Spooly einen Re-Import anfordert (force_reimport).
+    Falls ja, wird der lokale Cache geleert und alle Jobs nochmal gesendet.
+    """
     drucker_info = poller.drucker_info()
 
     # Heartbeat auch ohne Moonraker-Antwort senden — Spooly soll wissen
@@ -227,6 +231,13 @@ def _sende_heartbeat(poller, uploader, log):
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
         firmware=drucker_info.get("software_version") if drucker_info else None,
     )
+
+    if ergebnis and ergebnis.get("force_reimport"):
+        log.info("Re-Import von Spooly angefordert — lokalen Cache geleert")
+        poller.gesendete_jobs_zuruecksetzen()
+        # Sofort alle Jobs nochmal senden
+        _sync_neue_jobs(poller, uploader, log)
+
     return ergebnis is not None
 
 

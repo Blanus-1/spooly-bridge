@@ -160,6 +160,12 @@ class MoonrakerPoller:
             log.debug("Thumbnail laden fehlgeschlagen: %s", fehler)
             return None
 
+    def gesendete_jobs_zuruecksetzen(self):
+        """Alle gesendeten Job-IDs vergessen — beim naechsten Zyklus werden alle Jobs erneut gepusht."""
+        anzahl = len(self._gesendete_job_ids)
+        self._gesendete_job_ids.clear()
+        log.debug("%d gesendete Job-IDs zurueckgesetzt", anzahl)
+
     def zyklus_zuruecksetzen(self):
         """Cache fuer nicht-verfuegbare Endpoints zuruecksetzen (z.B. nach Neuinstallation)."""
         self._nicht_verfuegbar.clear()
