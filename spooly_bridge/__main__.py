@@ -133,9 +133,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
     log.info("WebSocket-Modus aktiv — Jobs werden sofort erkannt")
 
     letzter_heartbeat = 0
-    letzter_update_check = 0
     heartbeat_intervall = 300     # Heartbeat alle 5 Minuten
-    update_intervall = 3600       # Update-Check jede Stunde
 
     # Erster Sync: bestehende neue Jobs holen
     _sync_neue_jobs(poller, uploader, log)
@@ -164,13 +162,12 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
                 _starte_polling_modus(poller, uploader, config, log, laeuft_fn)
                 return True  # Polling hat uebernommen
 
-        # Periodischer Heartbeat (alle 5 Min)
+        # Periodischer Heartbeat (alle 5 Min, prueft auch force_reimport)
         if jetzt - letzter_heartbeat >= heartbeat_intervall:
             if _sende_heartbeat(poller, uploader, log):
                 letzter_heartbeat = jetzt
 
-        # Periodischer Update-Check (jede Stunde)
-        if jetzt - letzter_update_check >= update_intervall:
+            # Update-Check zusammen mit dem Heartbeat
             try:
                 from spooly_bridge.updater import update_pruefen_und_ausfuehren
                 ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
@@ -180,7 +177,6 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
                     os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
             except Exception:
                 pass
-            letzter_update_check = jetzt
 
     ws.trennen()
     return True
@@ -190,23 +186,20 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
 
 def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
     """Klassischer Polling-Modus als Fallback wenn WebSocket nicht verfuegbar."""
-    letzter_update_check = 0
 
     while laeuft_fn():
         _sende_heartbeat(poller, uploader, log)
         _sync_neue_jobs(poller, uploader, log)
 
-        # Update-Check jede Stunde
-        if time.time() - letzter_update_check >= 3600:
-            try:
-                from spooly_bridge.updater import update_pruefen_und_ausfuehren
-                ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
-                if ergebnis.get("aktualisiert"):
-                    log.info("Bridge aktualisiert — starte neu...")
-                    os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
-            except Exception:
-                pass
-            letzter_update_check = time.time()
+        # Update-Check bei jedem Zyklus (ein kleiner GET auf GitHub Releases)
+        try:
+            from spooly_bridge.updater import update_pruefen_und_ausfuehren
+            ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
+            if ergebnis.get("aktualisiert"):
+                log.info("Bridge aktualisiert — starte neu...")
+                os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
+        except Exception:
+            pass
 
         # Warten (abbrechbar)
         for _ in range(config.intervall):
