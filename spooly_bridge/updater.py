@@ -27,17 +27,14 @@ GITHUB_RAW_BASE = "https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main
 VERSION_URL = f"{GITHUB_RAW_BASE}/__init__.py"
 
 # Dateien die aktualisiert werden
-BRIDGE_DATEIEN = ["__init__.py", "__main__.py", "config.py", "moonraker.py", "uploader.py", "updater.py"]
+BRIDGE_DATEIEN = ["__init__.py", "__main__.py", "config.py", "moonraker.py", "uploader.py", "updater.py", "websocket_listener.py"]
 
 TIMEOUT = 15
 
 
 def _ssl_context():
-    """SSL-Context erstellen (mit Fallback fuer aeltere Systeme)."""
-    try:
-        return ssl.create_default_context()
-    except Exception:
-        return ssl._create_unverified_context()
+    """SSL-Context mit Zertifikatspruefung (niemals deaktivieren!)."""
+    return ssl.create_default_context()
 
 
 def _download(url: str) -> Optional[str]:

@@ -23,6 +23,8 @@ import os
 from typing import Optional, Callable
 from urllib.parse import urlparse
 
+from spooly_bridge import __version__
+
 log = logging.getLogger("spooly-bridge")
 
 # Moonraker Events die uns interessieren
@@ -87,7 +89,7 @@ class MoonrakerWebSocket:
                 "method": "server.connection.identify",
                 "params": {
                     "client_name": "spooly-bridge",
-                    "version": "1.2.0",
+                    "version": __version__,
                     "type": "other",
                 },
                 "id": 1,

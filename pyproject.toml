@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spooly-bridge"
-version = "1.2.0"
+version = "1.2.2"
 description = "Verbindet Klipper/Moonraker 3D-Drucker mit Spooly"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
