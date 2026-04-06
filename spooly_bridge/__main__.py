@@ -40,12 +40,31 @@ def main():
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    log_format = "%(asctime)s [%(levelname)s] %(message)s"
+    log_datefmt = "%H:%M:%S"
+
+    # Log-Rotation: max 500 KB, 1 Backup — verhindert Speicher-Overflow auf Druckern
+    # mit begrenztem Speicher (z.B. Snapmaker Buildroot)
     log = logging.getLogger("spooly-bridge")
+    log.setLevel(log_level)
+    formatter = logging.Formatter(log_format, datefmt=log_datefmt)
+
+    # Konsole (fuer systemd journald oder interaktive Nutzung)
+    konsole = logging.StreamHandler()
+    konsole.setFormatter(formatter)
+    log.addHandler(konsole)
+
+    # Datei mit Rotation (nur wenn nicht ueber systemd gestartet)
+    log_pfad = os.path.join(str(Path.home()), "bridge.log")
+    try:
+        from logging.handlers import RotatingFileHandler
+        datei_handler = RotatingFileHandler(
+            log_pfad, maxBytes=512_000, backupCount=1, encoding="utf-8"
+        )
+        datei_handler.setFormatter(formatter)
+        log.addHandler(datei_handler)
+    except Exception:
+        pass  # Falls Datei nicht schreibbar (z.B. read-only Dateisystem)
 
     if args.uninstall:
         _uninstall(log)
@@ -452,7 +471,8 @@ def _install(config, log):
         _run("systemctl start spooly-bridge")
         print("  --> Systemd-Service eingerichtet (startet automatisch)")
     else:
-        start_script = f"#!/bin/sh\ncd {home} && nohup {python} -m spooly_bridge > {home}/bridge.log 2>&1 &\n"
+        # Log-Rotation uebernimmt die Bridge selbst — stdout nur fuer Startfehler
+        start_script = f"#!/bin/sh\ncd {home} && nohup {python} -m spooly_bridge > /dev/null 2>&1 &\n"
         script_pfad = os.path.join(home, "start-bridge.sh")
         with open(script_pfad, "w") as f:
             f.write(start_script)
