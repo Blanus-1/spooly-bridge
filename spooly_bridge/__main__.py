@@ -79,7 +79,7 @@ def main():
         ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
         if ergebnis.get("aktualisiert"):
             log.info("Bridge aktualisiert — starte neu...")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
     except Exception as fehler:
         log.debug("Update-Check uebersprungen: %s", fehler)
 
@@ -177,7 +177,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
                 if ergebnis.get("aktualisiert"):
                     log.info("Bridge aktualisiert — starte neu...")
                     ws.trennen()
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                    os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
             except Exception:
                 pass
             letzter_update_check = jetzt
@@ -203,7 +203,7 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
                 ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
                 if ergebnis.get("aktualisiert"):
                     log.info("Bridge aktualisiert — starte neu...")
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                    os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
             except Exception:
                 pass
             letzter_update_check = time.time()
