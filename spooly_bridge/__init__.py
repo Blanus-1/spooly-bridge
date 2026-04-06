@@ -5,4 +5,4 @@ Pollt die lokale Moonraker-Instanz, erkennt neue Druckjobs
 und sendet sie automatisch an dein Spooly-Konto.
 """
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"

@@ -138,26 +138,33 @@ class MoonrakerPoller:
         if not groesstes:
             return None
 
+        groesse = f"{groesstes.get('width', '?')}x{groesstes.get('height', '?')}"
+
         # Thumbnail hat entweder "data" (Base64 inline) oder "relative_path" (Datei)
         if groesstes.get("data"):
+            log.info("Thumbnail gefunden (%s, inline base64)", groesse)
             return groesstes["data"]
 
         pfad = groesstes.get("relative_path")
         if not pfad:
+            log.info("Thumbnail hat weder data noch relative_path: %s", list(groesstes.keys()))
             return None
 
         # Datei ueber Moonraker File-API laden
         url = f"{self.basis_url}/server/files/gcodes/{pfad}"
         try:
             import base64
-            from urllib.request import urlopen, Request
             anfrage = Request(url, headers={"Accept": "image/png"})
             with urlopen(anfrage, timeout=TIMEOUT) as antwort:
                 bild_bytes = antwort.read()
+                if len(bild_bytes) < 100:
+                    log.warning("Thumbnail zu klein (%d Bytes), vermutlich Fehlerseite: %s", len(bild_bytes), pfad)
+                    return None
                 b64 = base64.b64encode(bild_bytes).decode("ascii")
+                log.info("Thumbnail geladen (%s, %d KB, %s)", groesse, len(bild_bytes) // 1024, pfad)
                 return f"data:image/png;base64,{b64}"
         except Exception as fehler:
-            log.debug("Thumbnail laden fehlgeschlagen: %s", fehler)
+            log.warning("Thumbnail laden fehlgeschlagen (%s): %s", pfad, fehler)
             return None
 
     def gesendete_jobs_zuruecksetzen(self):

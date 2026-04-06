@@ -95,6 +95,9 @@ def main():
     # Sofort Heartbeat senden damit Spooly weiss dass die Bridge laeuft
     _sende_heartbeat(poller, uploader, log)
 
+    # Thumbnail-Verfuegbarkeit pruefen (lokal, einmalig beim Start)
+    _pruefe_thumbnails(poller, log)
+
     # Graceful Shutdown
     laeuft = True
 
@@ -209,6 +212,44 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
 
 
 # ── Gemeinsame Sync-Funktionen ─────────────────────
+
+def _pruefe_thumbnails(poller, log):
+    """Prueft beim Start ob Thumbnails geladen werden koennen (rein lokale Diagnose)."""
+    jobs = poller.job_historie(limit=3)
+    if not jobs:
+        return
+
+    for job in jobs[:3]:
+        dateiname = job.get("filename", "?")
+        # Inline-Metadaten pruefen (Snapmaker liefert die direkt im Job)
+        meta = job.get("metadata", {})
+        thumbs = meta.get("thumbnails", [])
+
+        if not meta and not thumbs:
+            # Separaten Metadata-Endpoint versuchen
+            meta = poller.datei_metadaten(dateiname) if dateiname != "?" else {}
+            thumbs = meta.get("thumbnails", [])
+
+        if not thumbs:
+            log.info("  Thumbnail-Check: %s — keine Thumbnails in Metadaten", dateiname)
+            continue
+
+        # Struktur loggen damit wir sehen was der Drucker liefert
+        erstes = thumbs[0] if thumbs else {}
+        felder = list(erstes.keys()) if isinstance(erstes, dict) else []
+        log.info(
+            "  Thumbnail-Check: %s — %d Thumbnail(s), Felder: %s",
+            dateiname, len(thumbs), felder
+        )
+
+        # Versuch laden
+        ergebnis = poller.thumbnail_laden(meta)
+        if ergebnis:
+            log.info("  Thumbnail-Check: Laden erfolgreich (%d KB)", len(ergebnis) // 1024)
+        else:
+            log.warning("  Thumbnail-Check: Laden fehlgeschlagen")
+        break  # Ein Test reicht
+
 
 def _sende_heartbeat(poller, uploader, log):
     """Heartbeat an Spooly senden. Gibt True zurueck wenn erfolgreich.
