@@ -92,6 +92,9 @@ def main():
     log.info("  Spooly:     %s", config.spooly_url)
     log.info("  API-Key:    %s...%s", config.api_key[:12], config.api_key[-4:])
 
+    # Sofort Heartbeat senden damit Spooly weiss dass die Bridge laeuft
+    _sende_heartbeat(poller, uploader, log)
+
     # Graceful Shutdown
     laeuft = True
 
@@ -163,8 +166,8 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
 
         # Periodischer Heartbeat (alle 5 Min)
         if jetzt - letzter_heartbeat >= heartbeat_intervall:
-            _sende_heartbeat(poller, uploader, log)
-            letzter_heartbeat = jetzt
+            if _sende_heartbeat(poller, uploader, log):
+                letzter_heartbeat = jetzt
 
         # Periodischer Update-Check (jede Stunde)
         if jetzt - letzter_update_check >= update_intervall:
@@ -183,7 +186,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
     return True
 
 
-# ── Polling-Modus (Fallback) ───────────────────────────────
+# ── Polling-Modus (Fallback) ───────────────────────
 
 def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
     """Klassischer Polling-Modus als Fallback wenn WebSocket nicht verfuegbar."""
@@ -212,19 +215,19 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
             time.sleep(1)
 
 
-# ── Gemeinsame Sync-Funktionen ─────────────────────────────
+# ── Gemeinsame Sync-Funktionen ─────────────────────
 
 def _sende_heartbeat(poller, uploader, log):
-    """Heartbeat + Diagnose an Spooly senden."""
+    """Heartbeat an Spooly senden. Gibt True zurueck wenn erfolgreich."""
     drucker_info = poller.drucker_info()
-    if not drucker_info:
-        log.debug("Moonraker nicht erreichbar")
-        return
 
-    uploader.heartbeat(
-        drucker_name=drucker_info.get("hostname", "Klipper"),
-        firmware=drucker_info.get("software_version"),
+    # Heartbeat auch ohne Moonraker-Antwort senden — Spooly soll wissen
+    # dass die Bridge laeuft, auch wenn Moonraker noch hochfaehrt
+    ergebnis = uploader.heartbeat(
+        drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
+        firmware=drucker_info.get("software_version") if drucker_info else None,
     )
+    return ergebnis is not None
 
 
 def _sync_neue_jobs(poller, uploader, log):
@@ -330,7 +333,7 @@ def _spoolman_aufbereiten(spoolman_daten) -> dict:
     return {}
 
 
-# ── Install / Uninstall ────────────────────────────────────
+# ── Install / Uninstall ────────────────────────────
 
 def _run(cmd):
     try:
@@ -349,7 +352,7 @@ def _install(config, log):
     print("=" * 50)
     print()
 
-    # ── Schritt 1: Moonraker pruefen ──────────────────
+    # ── Schritt 1: Moonraker pruefen ────────────────────
     print("[1/4] Moonraker pruefen...")
     poller = MoonrakerPoller(config.moonraker_url)
     drucker_info = poller.drucker_info()
@@ -362,7 +365,7 @@ def _install(config, log):
         print("      Die Bridge wird trotzdem installiert und verbindet sich spaeter.")
         print()
 
-    # ── Schritt 2: Spooly-Verbindung testen ───────────
+    # ── Schritt 2: Spooly-Verbindung testen ─────────────
     print("[2/4] Spooly-Verbindung testen...")
     uploader = SpoolyUploader(config.spooly_url, config.api_key)
     spooly_ok = False
@@ -419,7 +422,7 @@ def _install(config, log):
         subprocess.Popen(["/bin/sh", script_pfad])
         print("  --> Start-Script eingerichtet (startet automatisch)")
 
-    # ── Schritt 4: Erster Sync ────────────────────────
+    # ── Schritt 4: Erster Sync ────────────────────
     print("[4/4] Erster Sync...")
     neue_jobs = poller.neue_jobs() if drucker_info else []
     if neue_jobs:
