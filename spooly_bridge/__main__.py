@@ -325,6 +325,17 @@ def _sync_neue_jobs(poller, uploader, log):
         if thumbnail_b64:
             aufbereitete_meta["thumbnails"] = [thumbnail_b64]
 
+        # Rohe G-Code-Metadaten mitschicken (ohne Thumbnails/Bilder)
+        # Dient zur Analyse welche Felder der Drucker tatsaechlich liefert
+        raw_meta = {}
+        for k, v in metadaten.items():
+            if k == "thumbnails":
+                raw_meta[k] = f"[{len(v)} thumbnails]" if isinstance(v, list) else str(v)[:100]
+            elif isinstance(v, str) and len(v) > 500:
+                raw_meta[k] = v[:500] + "...[truncated]"
+            else:
+                raw_meta[k] = v
+
         aufbereitete_jobs.append({
             "job_id": str(job.get("job_id", "")),
             "filename": dateiname,
@@ -335,6 +346,7 @@ def _sync_neue_jobs(poller, uploader, log):
             "filament_used_mm": job.get("filament_used"),
             "metadata": aufbereitete_meta,
             "spoolman": _spoolman_aufbereiten(spoolman),
+            "raw_gcode_metadata": raw_meta if raw_meta else None,
         })
 
     ergebnis = uploader.jobs_senden(
