@@ -483,8 +483,17 @@ def _install(config, log):
         _run("systemctl start spooly-bridge")
         print("  --> Systemd-Service eingerichtet (startet automatisch)")
     else:
-        # Log-Rotation uebernimmt die Bridge selbst — stdout nur fuer Startfehler
-        start_script = f"#!/bin/sh\ncd {home} && nohup {python} -m spooly_bridge > /dev/null 2>&1 &\n"
+        # Watchdog-Schleife: startet die Bridge automatisch neu wenn sie crasht
+        # oder nach einem Auto-Update (os.execv) den Prozess ersetzt hat.
+        # Wartet 10 Sekunden zwischen Neustarts um Endlos-Crash-Loops zu vermeiden.
+        start_script = (
+            f"#!/bin/sh\n"
+            f"cd {home}\n"
+            f"while true; do\n"
+            f"  {python} -m spooly_bridge\n"
+            f"  sleep 10\n"
+            f"done\n"
+        )
         script_pfad = os.path.join(home, "start-bridge.sh")
         with open(script_pfad, "w") as f:
             f.write(start_script)
@@ -496,8 +505,12 @@ def _install(config, log):
             if script_pfad not in inhalt:
                 with open(init_pfad, "a") as f:
                     f.write(f"{script_pfad}\n")
-        subprocess.Popen(["/bin/sh", script_pfad])
-        print("  --> Start-Script eingerichtet (startet automatisch)")
+        subprocess.Popen(
+            ["nohup", "/bin/sh", script_pfad],
+            stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"),
+            start_new_session=True,
+        )
+        print("  --> Start-Script mit Watchdog eingerichtet (startet automatisch neu bei Crash)")
 
     # ── Schritt 4: Erster Sync ────────────────────
     print("[4/4] Erster Sync...")
