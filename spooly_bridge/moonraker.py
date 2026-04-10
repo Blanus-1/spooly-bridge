@@ -30,11 +30,30 @@ class MoonrakerPoller:
     """Liest Daten von einer lokalen Moonraker-Instanz."""
 
     def __init__(self, basis_url: str = "http://localhost:7125"):
-        self.basis_url = basis_url.rstrip("/")
+        self.basis_url = self._normalisiere_url(basis_url)
         # IDs der bereits an Spooly gemeldeten Jobs (persistent im Speicher)
         self._gesendete_job_ids: set = set()
         # Cache fuer Features die nicht verfuegbar sind (z.B. Spoolman nicht installiert)
         self._nicht_verfuegbar: set = set()
+
+    @staticmethod
+    def _normalisiere_url(url: str) -> str:
+        """URL bereinigen: ws:// und wss:// auf http:// bzw. https:// umschreiben.
+
+        Moonraker bietet sowohl HTTP als auch WebSocket an — manche User
+        kopieren die WebSocket-URL aus der Doku, aber die REST-API
+        laeuft ueber HTTP auf dem gleichen Port.
+        """
+        url = url.strip().rstrip("/")
+        if url.startswith("wss://"):
+            url = "https://" + url[6:]
+            log.info("URL korrigiert: wss:// → https:// (REST-API nutzt HTTP)")
+        elif url.startswith("ws://"):
+            url = "http://" + url[5:]
+            log.info("URL korrigiert: ws:// → http:// (REST-API nutzt HTTP)")
+        elif not url.startswith("http://") and not url.startswith("https://"):
+            url = "http://" + url
+        return url
 
     def _get(self, pfad: str, params: dict = None) -> Optional[Any]:
         """HTTP GET an Moonraker. Gibt das 'result'-Feld zurueck oder None bei Fehler."""
