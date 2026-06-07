@@ -139,6 +139,17 @@ def main():
 
 # ── WebSocket-Modus (On-Demand, kein Polling) ──────────────
 
+# Reconnect-Backoff: 5s → 10s → 20s → 40s → 80s → 120s (gedeckelt)
+RECONNECT_START_DELAY = 5
+RECONNECT_MAX_DELAY = 120
+
+
+def _naechster_backoff_delay(aktueller_delay: int, max_delay: int = RECONNECT_MAX_DELAY) -> int:
+    """Verdoppelt den Wartezeit-Delay fuer den naechsten Reconnect-Versuch,
+    gedeckelt auf max_delay Sekunden."""
+    return min(aktueller_delay * 2, max_delay)
+
+
 def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
     """Versucht WebSocket-Verbindung aufzubauen. Gibt False zurueck wenn nicht moeglich."""
     try:
@@ -155,7 +166,14 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
     log.info("WebSocket-Modus aktiv — Jobs werden sofort erkannt")
 
     letzter_heartbeat = 0
-    heartbeat_intervall = 300     # Heartbeat alle 5 Minuten
+    # Heartbeat alle 4 Minuten — bewusst unter der 5-Minuten-Offline-Schwelle
+    # des Backends, damit ein laufender Reconnect-Versuch den Heartbeat nicht
+    # ueber die Schwelle drueckt und die Bridge faelschlich offline erscheint.
+    heartbeat_intervall = 240
+
+    # Reconnect-Zustand: reconnect_delay == 0 heisst "aktuell verbunden"
+    reconnect_delay = 0
+    naechster_reconnect = 0.0
 
     # Erster Sync: bestehende neue Jobs holen
     _sync_neue_jobs(poller, uploader, log)
@@ -163,26 +181,43 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
     while laeuft_fn():
         jetzt = time.time()
 
-        # WebSocket Events lesen
-        try:
-            events = ws.events_lesen(timeout=1.0)
-            for event in events:
-                if ws.ist_job_fertig_event(event):
-                    log.info("Druckjob abgeschlossen — synchronisiere...")
-                    time.sleep(2)  # Kurz warten bis Moonraker Historie aktualisiert hat
-                    _sync_neue_jobs(poller, uploader, log)
-        except Exception as fehler:
-            log.debug("WebSocket Fehler: %s", fehler)
+        if ws.verbunden:
+            # WebSocket Events lesen
+            try:
+                events = ws.events_lesen(timeout=1.0)
+                for event in events:
+                    if ws.ist_job_fertig_event(event):
+                        log.info("Druckjob abgeschlossen — synchronisiere...")
+                        time.sleep(2)  # Kurz warten bis Moonraker Historie aktualisiert hat
+                        _sync_neue_jobs(poller, uploader, log)
+            except Exception as fehler:
+                log.debug("WebSocket Fehler: %s", fehler)
 
-        # Verbindung verloren? Neu verbinden oder auf Polling wechseln
+        # Verbindung verloren? Mit wachsendem Backoff neu verbinden, statt
+        # dauerhaft auf den langsamen Polling-Modus zu degradieren. Der
+        # Heartbeat unten laeuft waehrenddessen weiter, damit Spooly die
+        # Bridge nicht faelschlich als offline anzeigt. Sobald Moonraker
+        # wieder da ist, geht es automatisch zurueck in den Event-Modus.
         if not ws.verbunden:
-            log.warning("WebSocket-Verbindung verloren — versuche Neuverbindung...")
-            time.sleep(5)
-            if not ws.verbinden():
-                log.warning("Neuverbindung fehlgeschlagen — wechsle auf Polling")
-                ws.trennen()
-                _starte_polling_modus(poller, uploader, config, log, laeuft_fn)
-                return True  # Polling hat uebernommen
+            if reconnect_delay == 0:
+                log.warning("WebSocket-Verbindung verloren — versuche Neuverbindung...")
+                reconnect_delay = RECONNECT_START_DELAY
+                naechster_reconnect = jetzt  # erster Versuch sofort
+
+            if jetzt >= naechster_reconnect:
+                if ws.verbinden():
+                    log.info("WebSocket wieder verbunden")
+                    reconnect_delay = 0
+                    _sync_neue_jobs(poller, uploader, log)  # verpasste Jobs nachholen
+                else:
+                    log.warning(
+                        "Neuverbindung fehlgeschlagen — naechster Versuch in %ds",
+                        reconnect_delay,
+                    )
+                    naechster_reconnect = jetzt + reconnect_delay
+                    reconnect_delay = _naechster_backoff_delay(reconnect_delay)
+            else:
+                time.sleep(1)  # nicht busy-warten bis zum naechsten Versuch
 
         # Periodischer Heartbeat (alle 5 Min, prueft auch force_reimport)
         if jetzt - letzter_heartbeat >= heartbeat_intervall:
