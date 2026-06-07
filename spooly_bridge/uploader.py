@@ -32,7 +32,7 @@ class SpoolyUploader:
         # HTTPS erzwingen fuer Produktiv-URLs (API-Key wird im Body gesendet!)
         if "spooly.eu" in self.basis_url and not self.basis_url.startswith("https://"):
             korrigiert = self.basis_url.replace("http://", "https://", 1)
-            log.warning("HTTP erkannt — erzwinge HTTPS: %s", korrigiert)
+            log.warning("HTTP erkannt - erzwinge HTTPS: %s", korrigiert)
             self.basis_url = korrigiert
 
         # Warnung bei komplett unbekannten URLs ohne HTTPS
@@ -65,7 +65,7 @@ class SpoolyUploader:
             if status == 401:
                 log.error("API-Key ungueltig oder abgelaufen! Bitte in Spooly neu generieren.")
             elif status == 429:
-                log.warning("Spooly Rate-Limit erreicht — naechster Versuch im naechsten Zyklus")
+                log.warning("Spooly Rate-Limit erreicht - naechster Versuch im naechsten Zyklus")
             else:
                 log.warning("Spooly API-Fehler %d bei %s", status, pfad)
             return None

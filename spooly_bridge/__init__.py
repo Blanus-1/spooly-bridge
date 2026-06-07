@@ -1,5 +1,5 @@
 """
-Spooly Bridge — Verbindet Klipper/Moonraker mit Spooly.
+Spooly Bridge - Verbindet Klipper/Moonraker mit Spooly.
 
 Pollt die lokale Moonraker-Instanz, erkennt neue Druckjobs
 und sendet sie automatisch an dein Spooly-Konto.

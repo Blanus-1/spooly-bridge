@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: Printing",
 ]
 
-# Keine externen Abhaengigkeiten — nutzt nur die Python-Standardbibliothek!
+# Keine externen Abhaengigkeiten - nutzt nur die Python-Standardbibliothek!
 dependencies = []
 
 [project.scripts]

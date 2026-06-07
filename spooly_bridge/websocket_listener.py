@@ -2,7 +2,7 @@
 Moonraker WebSocket-Listener fuer Echtzeit-Events.
 
 Verbindet sich mit dem Moonraker WebSocket und reagiert sofort
-auf abgeschlossene Druckjobs — kein Polling noetig.
+auf abgeschlossene Druckjobs - kein Polling noetig.
 
 Fallback: Wenn der WebSocket nicht verfuegbar ist, wird auf
 intervallbasiertes Polling zurueckgefallen.
@@ -159,7 +159,7 @@ class MoonrakerWebSocket:
                 self.verbunden = False
                 return []
 
-            # WebSocket Frames parsen (vereinfacht — Moonraker sendet unmaskiert)
+            # WebSocket Frames parsen (vereinfacht - Moonraker sendet unmaskiert)
             pos = 0
             while pos < len(daten):
                 if pos + 2 > len(daten):
@@ -200,7 +200,7 @@ class MoonrakerWebSocket:
                 elif opcode == 0x08:  # Close frame
                     self.verbunden = False
                     return events
-                elif opcode == 0x09:  # Ping — mit Pong antworten
+                elif opcode == 0x09:  # Ping - mit Pong antworten
                     pong = bytearray([0x8A, 0x80, 0, 0, 0, 0])  # Pong, masked, empty
                     try:
                         self.sock.sendall(pong)
@@ -208,7 +208,7 @@ class MoonrakerWebSocket:
                         pass
 
         except socket.timeout:
-            pass  # Normal — keine neuen Daten
+            pass  # Normal - keine neuen Daten
         except (socket.error, OSError):
             self.verbunden = False
 

@@ -7,7 +7,7 @@ aktualisiert die lokalen Dateien automatisch.
 Sicherheit:
 - Ladt nur von der offiziellen GitHub-URL
 - Prueft ob der Download erfolgreich war bevor Dateien ersetzt werden
-- Kein Code wird ausgefuehrt — nur Dateien werden heruntergeladen
+- Kein Code wird ausgefuehrt - nur Dateien werden heruntergeladen
 """
 
 import json
@@ -136,18 +136,18 @@ def update_pruefen_und_ausfuehren(erlaubt: bool = True) -> dict:
     if not ist_neuer:
         return {"update_verfuegbar": False, "neue_version": remote, "aktualisiert": False}
 
-    log.info("Update verfuegbar: v%s → v%s", lokal, remote)
+    log.info("Update verfuegbar: v%s -> v%s", lokal, remote)
 
     if not erlaubt:
-        log.info("Auto-Update ist deaktiviert — Update muss manuell installiert werden")
+        log.info("Auto-Update ist deaktiviert - Update muss manuell installiert werden")
         return {"update_verfuegbar": True, "neue_version": remote, "aktualisiert": False}
 
     # Update durchfuehren
     erfolg = update_ausfuehren()
 
     if erfolg:
-        log.info("Bridge auf v%s aktualisiert — Neustart empfohlen", remote)
+        log.info("Bridge auf v%s aktualisiert - Neustart empfohlen", remote)
     else:
-        log.warning("Update auf v%s fehlgeschlagen — alte Version bleibt aktiv", remote)
+        log.warning("Update auf v%s fehlgeschlagen - alte Version bleibt aktiv", remote)
 
     return {"update_verfuegbar": True, "neue_version": remote, "aktualisiert": erfolg}

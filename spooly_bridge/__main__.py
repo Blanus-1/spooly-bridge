@@ -25,7 +25,7 @@ from spooly_bridge.uploader import SpoolyUploader
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Spooly Bridge — Verbindet Klipper/Moonraker mit Spooly"
+        description="Spooly Bridge - Verbindet Klipper/Moonraker mit Spooly"
     )
     parser.add_argument("--key", "-k", help="Spooly Bridge API-Key")
     parser.add_argument("--moonraker-url", "-m", default="http://localhost:7125", help="Moonraker URL")
@@ -43,7 +43,7 @@ def main():
     log_format = "%(asctime)s [%(levelname)s] %(message)s"
     log_datefmt = "%H:%M:%S"
 
-    # Log-Rotation: max 500 KB, 1 Backup — verhindert Speicher-Overflow auf Druckern
+    # Log-Rotation: max 500 KB, 1 Backup - verhindert Speicher-Overflow auf Druckern
     # mit begrenztem Speicher (z.B. Snapmaker Buildroot)
     log = logging.getLogger("spooly-bridge")
     log.setLevel(log_level)
@@ -97,7 +97,7 @@ def main():
         from spooly_bridge.updater import update_pruefen_und_ausfuehren
         ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
         if ergebnis.get("aktualisiert"):
-            log.info("Bridge aktualisiert — starte neu...")
+            log.info("Bridge aktualisiert - starte neu...")
             os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
     except Exception as fehler:
         log.debug("Update-Check uebersprungen: %s", fehler)
@@ -137,9 +137,9 @@ def main():
     log.info("Bridge beendet.")
 
 
-# ── WebSocket-Modus (On-Demand, kein Polling) ──────────────
+# -- WebSocket-Modus (On-Demand, kein Polling) --------------
 
-# Reconnect-Backoff: 5s → 10s → 20s → 40s → 80s → 120s (gedeckelt)
+# Reconnect-Backoff: 5s -> 10s -> 20s -> 40s -> 80s -> 120s (gedeckelt)
 RECONNECT_START_DELAY = 5
 RECONNECT_MAX_DELAY = 120
 
@@ -163,10 +163,10 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
         ws.trennen()
         return False
 
-    log.info("WebSocket-Modus aktiv — Jobs werden sofort erkannt")
+    log.info("WebSocket-Modus aktiv - Jobs werden sofort erkannt")
 
     letzter_heartbeat = 0
-    # Heartbeat alle 4 Minuten — bewusst unter der 5-Minuten-Offline-Schwelle
+    # Heartbeat alle 4 Minuten - bewusst unter der 5-Minuten-Offline-Schwelle
     # des Backends, damit ein laufender Reconnect-Versuch den Heartbeat nicht
     # ueber die Schwelle drueckt und die Bridge faelschlich offline erscheint.
     heartbeat_intervall = 240
@@ -187,7 +187,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
                 events = ws.events_lesen(timeout=1.0)
                 for event in events:
                     if ws.ist_job_fertig_event(event):
-                        log.info("Druckjob abgeschlossen — synchronisiere...")
+                        log.info("Druckjob abgeschlossen - synchronisiere...")
                         time.sleep(2)  # Kurz warten bis Moonraker Historie aktualisiert hat
                         _sync_neue_jobs(poller, uploader, log)
             except Exception as fehler:
@@ -200,7 +200,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
         # wieder da ist, geht es automatisch zurueck in den Event-Modus.
         if not ws.verbunden:
             if reconnect_delay == 0:
-                log.warning("WebSocket-Verbindung verloren — versuche Neuverbindung...")
+                log.warning("WebSocket-Verbindung verloren - versuche Neuverbindung...")
                 reconnect_delay = RECONNECT_START_DELAY
                 naechster_reconnect = jetzt  # erster Versuch sofort
 
@@ -211,7 +211,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
                     _sync_neue_jobs(poller, uploader, log)  # verpasste Jobs nachholen
                 else:
                     log.warning(
-                        "Neuverbindung fehlgeschlagen — naechster Versuch in %ds",
+                        "Neuverbindung fehlgeschlagen - naechster Versuch in %ds",
                         reconnect_delay,
                     )
                     naechster_reconnect = jetzt + reconnect_delay
@@ -229,7 +229,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
                 from spooly_bridge.updater import update_pruefen_und_ausfuehren
                 ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
                 if ergebnis.get("aktualisiert"):
-                    log.info("Bridge aktualisiert — starte neu...")
+                    log.info("Bridge aktualisiert - starte neu...")
                     ws.trennen()
                     os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
             except Exception:
@@ -239,7 +239,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
     return True
 
 
-# ── Polling-Modus (Fallback) ───────────────────────
+# -- Polling-Modus (Fallback) -----------------------
 
 def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
     """Klassischer Polling-Modus als Fallback wenn WebSocket nicht verfuegbar."""
@@ -253,7 +253,7 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
             from spooly_bridge.updater import update_pruefen_und_ausfuehren
             ergebnis = update_pruefen_und_ausfuehren(erlaubt=True)
             if ergebnis.get("aktualisiert"):
-                log.info("Bridge aktualisiert — starte neu...")
+                log.info("Bridge aktualisiert - starte neu...")
                 os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
         except Exception:
             pass
@@ -265,7 +265,7 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
             time.sleep(1)
 
 
-# ── Gemeinsame Sync-Funktionen ─────────────────────
+# -- Gemeinsame Sync-Funktionen ---------------------
 
 def _pruefe_thumbnails(poller, log):
     """Prueft beim Start ob Thumbnails geladen werden koennen (rein lokale Diagnose)."""
@@ -285,14 +285,14 @@ def _pruefe_thumbnails(poller, log):
             thumbs = meta.get("thumbnails", [])
 
         if not thumbs:
-            log.info("  Thumbnail-Check: %s — keine Thumbnails in Metadaten", dateiname)
+            log.info("  Thumbnail-Check: %s - keine Thumbnails in Metadaten", dateiname)
             continue
 
         # Struktur loggen damit wir sehen was der Drucker liefert
         erstes = thumbs[0] if thumbs else {}
         felder = list(erstes.keys()) if isinstance(erstes, dict) else []
         log.info(
-            "  Thumbnail-Check: %s — %d Thumbnail(s), Felder: %s",
+            "  Thumbnail-Check: %s - %d Thumbnail(s), Felder: %s",
             dateiname, len(thumbs), felder
         )
 
@@ -313,7 +313,7 @@ def _sende_heartbeat(poller, uploader, log):
     """
     drucker_info = poller.drucker_info()
 
-    # Heartbeat auch ohne Moonraker-Antwort senden — Spooly soll wissen
+    # Heartbeat auch ohne Moonraker-Antwort senden - Spooly soll wissen
     # dass die Bridge laeuft, auch wenn Moonraker noch hochfaehrt
     ergebnis = uploader.heartbeat(
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
@@ -321,7 +321,7 @@ def _sende_heartbeat(poller, uploader, log):
     )
 
     if ergebnis and ergebnis.get("force_reimport"):
-        log.info("Re-Import von Spooly angefordert — lokalen Cache geleert")
+        log.info("Re-Import von Spooly angefordert - lokalen Cache geleert")
         poller.gesendete_jobs_zuruecksetzen()
         # Sofort alle Jobs nochmal senden
         _sync_neue_jobs(poller, uploader, log)
@@ -398,7 +398,7 @@ def _sync_neue_jobs(poller, uploader, log):
         for job in aufbereitete_jobs:
             poller.job_als_gesendet_markieren(job["job_id"])
     elif ergebnis is None:
-        log.warning("Spooly nicht erreichbar — naechster Versuch spaeter")
+        log.warning("Spooly nicht erreichbar - naechster Versuch spaeter")
     else:
         log.warning("Spooly-Fehler: %s", ergebnis)
 
@@ -444,7 +444,7 @@ def _spoolman_aufbereiten(spoolman_daten) -> dict:
     return {}
 
 
-# ── Install / Uninstall ────────────────────────────
+# -- Install / Uninstall ----------------------------
 
 def _run(cmd):
     try:
@@ -459,11 +459,11 @@ def _install(config, log):
 
     print()
     print("=" * 50)
-    print("  Spooly Bridge v%s — Installation" % __version__)
+    print("  Spooly Bridge v%s - Installation" % __version__)
     print("=" * 50)
     print()
 
-    # ── Schritt 1: Moonraker pruefen ────────────────────
+    # -- Schritt 1: Moonraker pruefen --------------------
     print("[1/4] Moonraker pruefen...")
     poller = MoonrakerPoller(config.moonraker_url)
     drucker_info = poller.drucker_info()
@@ -476,7 +476,7 @@ def _install(config, log):
         print("      Die Bridge wird trotzdem installiert und verbindet sich spaeter.")
         print()
 
-    # ── Schritt 2: Spooly-Verbindung testen ─────────────
+    # -- Schritt 2: Spooly-Verbindung testen -------------
     print("[2/4] Spooly-Verbindung testen...")
     uploader = SpoolyUploader(config.spooly_url, config.api_key)
     spooly_ok = False
@@ -500,7 +500,7 @@ def _install(config, log):
         print()
         return
 
-    # ── Schritt 3: Autostart einrichten ───────────────
+    # -- Schritt 3: Autostart einrichten ---------------
     print("[3/4] Autostart einrichten...")
     has_systemd = os.path.exists("/usr/bin/systemctl") or os.path.exists("/bin/systemctl")
 
@@ -547,7 +547,7 @@ def _install(config, log):
         )
         print("  --> Start-Script mit Watchdog eingerichtet (startet automatisch neu bei Crash)")
 
-    # ── Schritt 4: Erster Sync ────────────────────
+    # -- Schritt 4: Erster Sync --------------------
     print("[4/4] Erster Sync...")
     neue_jobs = poller.neue_jobs() if drucker_info else []
     if neue_jobs:
@@ -555,7 +555,7 @@ def _install(config, log):
     else:
         print("  --> Keine neuen Druckjobs (alles aktuell)")
 
-    # ── Zusammenfassung ───────────────────────────────
+    # -- Zusammenfassung -------------------------------
     print()
     print("=" * 50)
     print("  Installation abgeschlossen!")

@@ -40,17 +40,17 @@ class MoonrakerPoller:
     def _normalisiere_url(url: str) -> str:
         """URL bereinigen: ws:// und wss:// auf http:// bzw. https:// umschreiben.
 
-        Moonraker bietet sowohl HTTP als auch WebSocket an — manche User
+        Moonraker bietet sowohl HTTP als auch WebSocket an - manche User
         kopieren die WebSocket-URL aus der Doku, aber die REST-API
         laeuft ueber HTTP auf dem gleichen Port.
         """
         url = url.strip().rstrip("/")
         if url.startswith("wss://"):
             url = "https://" + url[6:]
-            log.info("URL korrigiert: wss:// → https:// (REST-API nutzt HTTP)")
+            log.info("URL korrigiert: wss:// -> https:// (REST-API nutzt HTTP)")
         elif url.startswith("ws://"):
             url = "http://" + url[5:]
-            log.info("URL korrigiert: ws:// → http:// (REST-API nutzt HTTP)")
+            log.info("URL korrigiert: ws:// -> http:// (REST-API nutzt HTTP)")
         elif not url.startswith("http://") and not url.startswith("https://"):
             url = "http://" + url
         return url
@@ -123,7 +123,7 @@ class MoonrakerPoller:
         ergebnis = self._get("/server/files/metadata", {"filename": dateiname})
         if ergebnis is None:
             self._nicht_verfuegbar.add("metadata")
-            log.info("Metadaten-Endpoint nicht verfuegbar — wird fuer diesen Zyklus uebersprungen")
+            log.info("Metadaten-Endpoint nicht verfuegbar - wird fuer diesen Zyklus uebersprungen")
             return {}
         return ergebnis if isinstance(ergebnis, dict) else {}
 
@@ -135,7 +135,7 @@ class MoonrakerPoller:
         ergebnis = self._get("/server/spoolman/spool_id")
         if ergebnis is None:
             self._nicht_verfuegbar.add("spoolman")
-            log.info("Spoolman nicht installiert — wird fuer diese Sitzung uebersprungen")
+            log.info("Spoolman nicht installiert - wird fuer diese Sitzung uebersprungen")
             return None
         return ergebnis
 
@@ -187,7 +187,7 @@ class MoonrakerPoller:
             return None
 
     def gesendete_jobs_zuruecksetzen(self):
-        """Alle gesendeten Job-IDs vergessen — beim naechsten Zyklus werden alle Jobs erneut gepusht."""
+        """Alle gesendeten Job-IDs vergessen - beim naechsten Zyklus werden alle Jobs erneut gepusht."""
         anzahl = len(self._gesendete_job_ids)
         self._gesendete_job_ids.clear()
         log.debug("%d gesendete Job-IDs zurueckgesetzt", anzahl)

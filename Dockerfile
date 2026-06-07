@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 LABEL maintainer="Tobias Terzer"
-LABEL description="Spooly Bridge — Verbindet Klipper/Moonraker mit Spooly"
+LABEL description="Spooly Bridge - Verbindet Klipper/Moonraker mit Spooly"
 
 WORKDIR /app
 COPY . .
