@@ -19,23 +19,9 @@ Die Bridge läuft als kleines Script neben deiner Moonraker-Instanz und sendet a
 ## Voraussetzungen
 
 - **Python 3.8+** auf dem Drucker (bei Raspberry Pi und Snapmaker ab Werk vorhanden)
-- **Git** auf deinem PC (nur zum Herunterladen, nicht auf dem Drucker nötig)
 - **SSH-Zugang** zum Drucker
 
-### Git installieren (falls nicht vorhanden)
-
-**Windows:** [git-scm.com/download/win](https://git-scm.com/download/win) herunterladen und installieren. Danach **Git Bash** oder **PowerShell** nutzen.
-
-**macOS:**
-```bash
-# Git wird beim ersten Aufruf automatisch installiert
-git --version
-```
-
-**Linux:**
-```bash
-sudo apt install git
-```
+Mehr nicht. Kein Git, kein Kopieren vom PC, die Bridge lädt sich selbst herunter.
 
 ## Installation (Schritt für Schritt)
 
@@ -47,26 +33,26 @@ sudo apt install git
 4. Klicke **"API-Key generieren"**
 5. Kopiere den Key (sieht aus wie `spooly_br_xxxxxxxxxxxx`)
 
-### Schritt 2: Bridge herunterladen und auf den Drucker kopieren
-
-**Auf deinem PC** (nicht auf dem Drucker):
+### Schritt 2: Per SSH auf den Drucker und installieren
 
 ```bash
-git clone https://github.com/Blanus-1/spooly-bridge.git
-scp -r spooly-bridge/spooly_bridge BENUTZER@DRUCKER_IP:~/spooly_bridge/
+ssh BENUTZER@DRUCKER_IP
 ```
 
 Ersetze:
 - `BENUTZER` mit dem SSH-Benutzernamen (meistens `pi` oder `root`)
 - `DRUCKER_IP` mit der IP-Adresse deines Druckers
 
-### Schritt 3: Bridge installieren
-
-Per SSH auf den Drucker verbinden und den Installationsbefehl ausführen:
+Dann diesen einen Befehl ausführen (lädt die Bridge herunter und richtet alles ein):
 
 ```bash
-ssh BENUTZER@DRUCKER_IP
-cd ~ && python3 -m spooly_bridge --install --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
+wget -q -O- https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py | python3 - --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
+```
+
+Falls dein System `curl` statt `wget` hat (z.B. manche Raspberry-Pi-Images):
+
+```bash
+curl -sL https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py | python3 - --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
 ```
 
 > **Wichtig:** Der Parameter `--spooly-url https://dev.spooly.eu/api` ist während der Beta-Phase nötig. Sobald die Integration offiziell veröffentlicht wird, entfällt dieser Parameter.
@@ -75,7 +61,7 @@ cd ~ && python3 -m spooly_bridge --install --key DEIN_API_KEY --spooly-url https
 
 ```
 ==================================================
-  Spooly Bridge v1.3.7 - Installation
+  Spooly Bridge v1.4.0 - Installation
 ==================================================
 
 [1/4] Moonraker pruefen...
@@ -85,7 +71,7 @@ cd ~ && python3 -m spooly_bridge --install --key DEIN_API_KEY --spooly-url https
   --> Spooly verbunden! API-Key gueltig.
 
 [3/4] Autostart einrichten...
-  --> Start-Script eingerichtet (startet automatisch)
+  --> Systemd-Service eingerichtet (startet automatisch)
 
 [4/4] Erster Sync...
   --> 12 Druckjob(s) gefunden!
@@ -131,18 +117,17 @@ docker run -d \
 - Generiere einen neuen API-Key in Spooly (Einstellungen, Klipper, Bridge)
 - Prüfe ob der Key richtig kopiert wurde (beginnt mit `spooly_br_`)
 
-### "git: command not found" (auf deinem PC)
+### "Download fehlgeschlagen" bei der Installation
 
-- Windows: Installiere Git von [git-scm.com](https://git-scm.com/download/win)
-- macOS: Führe `xcode-select --install` aus
-- Linux: `sudo apt install git`
+- Prüfe ob der Drucker Internet hat: `ping github.com`
+- Bei Firmen-Netzwerken: Firewall/Proxy kann raw.githubusercontent.com blockieren
 
-### "scp: command not found" (auf deinem PC)
+### Bridge läuft nach Drucker-Neustart nicht mehr
 
-- Windows: Nutze **PowerShell** (nicht CMD), dort ist `scp` eingebaut
-- Alternativ: [WinSCP](https://winscp.net) als grafisches Tool nutzen
+- Installation einfach nochmal ausführen (Befehl aus Schritt 2), das repariert auch den Autostart
+- Auf dem Snapmaker U1 prüfen: `ls /etc/init.d/S99spoolybridge` muss existieren
 
-### "Permission denied" beim SCP oder SSH
+### "Permission denied" beim SSH
 
 - Prüfe Benutzername und Passwort
 - Bei Raspberry Pi: Standard ist `pi` / `raspberry`

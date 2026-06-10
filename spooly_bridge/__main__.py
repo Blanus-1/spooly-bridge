@@ -446,11 +446,124 @@ def _spoolman_aufbereiten(spoolman_daten) -> dict:
 
 # -- Install / Uninstall ----------------------------
 
+PIDFILE_PFAD = "/var/run/spoolybridge.pid"
+AUTOSTART_SCRIPT_PFAD = "/etc/init.d/S99spoolybridge"
+
+
 def _run(cmd):
     try:
         subprocess.run(cmd, shell=True, check=False, capture_output=True)
     except Exception:
         pass
+
+
+def _pkill(muster):
+    # Bewusst ohne Shell: bei shell=True wuerde die sh-c-Cmdline selbst
+    # das Muster enthalten und pkill die eigene Parent-Shell treffen
+    try:
+        subprocess.run(["pkill", "-f", muster], check=False, capture_output=True)
+    except Exception:
+        pass
+
+
+def _watchdog_script_inhalt(home: str, python: str, config_pfad: str) -> str:
+    """Watchdog-Script: haelt die Bridge am Laufen, auch nach Crash oder Update.
+
+    HOME und --config sind explizit gesetzt, weil busybox init Boot-Prozesse
+    mit HOME=/ und cwd=/ startet. Ohne das findet die Bridge beim Boot weder
+    ihr Modul noch ihre Config und beendet sich sofort wieder.
+    """
+    return (
+        "#!/bin/sh\n"
+        "# Spooly Bridge Watchdog: startet die Bridge neu wenn sie crasht\n"
+        "# oder sich nach einem Auto-Update beendet hat.\n"
+        f"export HOME={home}\n"
+        f"cd {home}\n"
+        "while true; do\n"
+        f"  {python} -m spooly_bridge --config {config_pfad}\n"
+        "  sleep 10\n"
+        "done\n"
+    )
+
+
+def _autostart_script_inhalt(script_pfad: str) -> str:
+    """Init-Script fuer /etc/init.d/ auf Buildroot-Systemen (Snapmaker U1).
+
+    Wird beim Boot von rcS mit "start" aufgerufen. Der Watchdog MUSS in den
+    Hintergrund (-b), weil rcS alle Scripts synchron abarbeitet - sonst
+    haengt der Boot in der Endlos-Schleife fest.
+    """
+    return (
+        "#!/bin/sh\n"
+        "# Spooly Bridge Autostart (von der Installation eingerichtet)\n"
+        "\n"
+        f"PIDFILE={PIDFILE_PFAD}\n"
+        f"SCRIPT={script_pfad}\n"
+        "\n"
+        "case \"$1\" in\n"
+        "    start)\n"
+        "        [ -x \"$SCRIPT\" ] || exit 0\n"
+        "        start-stop-daemon -S -b -m -p \"$PIDFILE\" -x /bin/sh -- \"$SCRIPT\"\n"
+        "        ;;\n"
+        "    stop)\n"
+        "        # Erst den Watchdog stoppen, sonst startet er die Bridge\n"
+        "        # sofort wieder. Die pkill-Muster sind bewusst praezise:\n"
+        "        # ein breites \"spooly_bridge\" wuerde auch laufende\n"
+        "        # --install/--uninstall Aufrufe treffen.\n"
+        "        [ -f \"$PIDFILE\" ] && start-stop-daemon -K -p \"$PIDFILE\" 2>/dev/null\n"
+        "        rm -f \"$PIDFILE\"\n"
+        "        pkill -f \"start-bridge.sh\" 2>/dev/null\n"
+        "        pkill -f \"spooly_bridge --config\" 2>/dev/null\n"
+        "        pkill -f \"spooly_bridge$\" 2>/dev/null\n"
+        "        ;;\n"
+        "    restart)\n"
+        "        \"$0\" stop\n"
+        "        sleep 1\n"
+        "        \"$0\" start\n"
+        "        ;;\n"
+        "    *)\n"
+        "        echo \"Usage: $0 {start|stop|restart}\"\n"
+        "        ;;\n"
+        "esac\n"
+        "\n"
+        "exit 0\n"
+    )
+
+
+def _systemd_service_inhalt(home: str, python: str, config_pfad: str) -> str:
+    """Systemd-Unit fuer Debian/Raspberry-Pi-Systeme.
+
+    --config explizit, weil systemd-Units ohne HOME laufen und Path.home()
+    dann auf den passwd-Eintrag von root zeigt statt auf den User der die
+    Bridge installiert hat.
+    """
+    return (
+        "[Unit]\n"
+        "Description=Spooly Bridge\n"
+        "After=network-online.target\n"
+        "Wants=network-online.target\n"
+        "\n"
+        "[Service]\n"
+        f"WorkingDirectory={home}\n"
+        f"ExecStart={python} -m spooly_bridge --config {config_pfad}\n"
+        "Restart=always\n"
+        "RestartSec=10\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+
+
+def _rcs_altlasten_entfernen(inhalt: str) -> str:
+    """Entfernt von frueheren Versionen angehaengte Start-Zeilen aus rcS.
+
+    Aeltere Installationen haengten den Start-Aufruf direkt an
+    /etc/init.d/rcS an. Seit v1.3.6 blockierte das den Boot, weil die
+    Watchdog-Schleife nie returnt - der Autostart laeuft jetzt ueber ein
+    eigenes init.d-Script.
+    """
+    zeilen = inhalt.splitlines(keepends=True)
+    return "".join(z for z in zeilen if "start-bridge.sh" not in z)
 
 
 def _install(config, log):
@@ -498,54 +611,75 @@ def _install(config, log):
         print()
         print("  Installation abgebrochen. Bitte behebe das Problem und versuche es erneut.")
         print()
-        return
+        sys.exit(1)
 
     # -- Schritt 3: Autostart einrichten ---------------
     print("[3/4] Autostart einrichten...")
     has_systemd = os.path.exists("/usr/bin/systemctl") or os.path.exists("/bin/systemctl")
+    config_pfad = os.path.join(home, ".spooly-bridge.json")
 
     if has_systemd:
-        service = (
-            "[Unit]\nDescription=Spooly Bridge\nAfter=network-online.target\n"
-            "Wants=network-online.target\n\n[Service]\n"
-            f"WorkingDirectory={home}\nExecStart={python} -m spooly_bridge\n"
-            "Restart=always\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n"
-        )
-        with open("/etc/systemd/system/spooly-bridge.service", "w") as f:
-            f.write(service)
+        try:
+            with open("/etc/systemd/system/spooly-bridge.service", "w") as f:
+                f.write(_systemd_service_inhalt(home, python, config_pfad))
+        except PermissionError:
+            print("  --> FEHLER: Keine Berechtigung fuer /etc/systemd/system/")
+            print("      Bitte die Installation mit sudo bzw. als root ausfuehren.")
+            sys.exit(1)
         _run("systemctl daemon-reload")
         _run("systemctl enable spooly-bridge")
-        _run("systemctl start spooly-bridge")
+        _run("systemctl restart spooly-bridge")
         print("  --> Systemd-Service eingerichtet (startet automatisch)")
     else:
         # Watchdog-Schleife: startet die Bridge automatisch neu wenn sie crasht
         # oder nach einem Auto-Update (os.execv) den Prozess ersetzt hat.
-        # Wartet 10 Sekunden zwischen Neustarts um Endlos-Crash-Loops zu vermeiden.
-        start_script = (
-            f"#!/bin/sh\n"
-            f"cd {home}\n"
-            f"while true; do\n"
-            f"  {python} -m spooly_bridge\n"
-            f"  sleep 10\n"
-            f"done\n"
-        )
         script_pfad = os.path.join(home, "start-bridge.sh")
         with open(script_pfad, "w") as f:
-            f.write(start_script)
+            f.write(_watchdog_script_inhalt(home, python, config_pfad))
         os.chmod(script_pfad, 0o755)
-        init_pfad = "/etc/init.d/rcS"
-        if os.path.exists(init_pfad):
-            with open(init_pfad, "r") as f:
-                inhalt = f.read()
-            if script_pfad not in inhalt:
-                with open(init_pfad, "a") as f:
-                    f.write(f"{script_pfad}\n")
-        subprocess.Popen(
-            ["nohup", "/bin/sh", script_pfad],
-            stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"),
-            start_new_session=True,
-        )
-        print("  --> Start-Script mit Watchdog eingerichtet (startet automatisch neu bei Crash)")
+
+        # Altlast aufraeumen: fruehere Versionen haengten den Start-Aufruf
+        # direkt an rcS an - das funktionierte beim Boot nicht (HOME=/)
+        # und blockierte rcS in der Watchdog-Schleife
+        rcs_pfad = "/etc/init.d/rcS"
+        if os.path.exists(rcs_pfad):
+            try:
+                with open(rcs_pfad, "r") as f:
+                    inhalt = f.read()
+                bereinigt = _rcs_altlasten_entfernen(inhalt)
+                if bereinigt != inhalt:
+                    with open(rcs_pfad, "w") as f:
+                        f.write(bereinigt)
+            except (PermissionError, OSError):
+                pass
+
+        autostart_ok = False
+        if os.path.isdir("/etc/init.d") and shutil.which("start-stop-daemon"):
+            try:
+                with open(AUTOSTART_SCRIPT_PFAD, "w") as f:
+                    f.write(_autostart_script_inhalt(script_pfad))
+                os.chmod(AUTOSTART_SCRIPT_PFAD, 0o755)
+                autostart_ok = True
+            except (PermissionError, OSError):
+                pass
+
+        if autostart_ok:
+            # Ueber denselben Weg starten wie beim Boot - so fallen
+            # Probleme schon bei der Installation auf, nicht erst beim
+            # naechsten Neustart des Druckers
+            _run(f"{AUTOSTART_SCRIPT_PFAD} stop")
+            _run(f"{AUTOSTART_SCRIPT_PFAD} start")
+            print("  --> Autostart eingerichtet (%s)" % AUTOSTART_SCRIPT_PFAD)
+        else:
+            subprocess.Popen(
+                ["nohup", "/bin/sh", script_pfad],
+                stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"),
+                start_new_session=True,
+            )
+            print("  --> WARNUNG: Autostart konnte nicht eingerichtet werden")
+            print("      (kein systemd und kein beschreibbares /etc/init.d gefunden)")
+            print("      Die Bridge laeuft jetzt, muss aber nach einem Neustart")
+            print("      manuell gestartet werden: /bin/sh %s &" % script_pfad)
 
     # -- Schritt 4: Erster Sync --------------------
     print("[4/4] Erster Sync...")
@@ -584,7 +718,26 @@ def _uninstall(log):
         os.remove("/etc/systemd/system/spooly-bridge.service")
         _run("systemctl daemon-reload")
         log.info("  Systemd-Service entfernt")
-    _run("pkill -f spooly_bridge")
+
+    # Laufende Prozesse beenden. Die Muster sind bewusst praezise: ein
+    # breites "spooly_bridge" wuerde diesen Uninstall-Prozess selbst
+    # treffen (die eigene Cmdline enthaelt das Muster).
+    _pkill("start-bridge.sh")
+    _pkill("spooly_bridge --config")
+    _pkill("spooly_bridge$")
+
+    if os.path.exists(AUTOSTART_SCRIPT_PFAD):
+        try:
+            os.remove(AUTOSTART_SCRIPT_PFAD)
+            log.info("  Autostart-Script entfernt")
+        except PermissionError:
+            log.warning("  Konnte %s nicht entfernen", AUTOSTART_SCRIPT_PFAD)
+    if os.path.exists(PIDFILE_PFAD):
+        try:
+            os.remove(PIDFILE_PFAD)
+        except OSError:
+            pass
+
     for name in ["start-bridge.sh", ".spooly-bridge.json", "bridge.log"]:
         pfad = os.path.join(home, name)
         if os.path.exists(pfad):
