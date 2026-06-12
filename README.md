@@ -19,7 +19,7 @@ Die Bridge läuft als kleines Script neben deiner Moonraker-Instanz und sendet a
 ## Voraussetzungen
 
 - **Python 3.8+** auf dem Drucker (bei Raspberry Pi und Snapmaker ab Werk vorhanden)
-- **SSH-Zugang** zum Drucker
+- **SSH-Zugang** zum Drucker (beim Snapmaker U1 muss SSH erst am Display aktiviert werden, siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz))
 
 Mehr nicht. Kein Git, kein Kopieren vom PC, die Bridge lädt sich selbst herunter.
 
@@ -103,6 +103,38 @@ docker run -d \
   blanus1/spooly-bridge
 ```
 
+## Snapmaker U1: SSH und Persistenz
+
+Der U1 ist ein Sonderfall: SSH ist ab Werk aus, und das System verwirft Änderungen beim Neustart, solange die Persistenz nicht aktiviert ist. Beides ist schnell erledigt.
+
+### SSH aktivieren
+
+1. Am Drucker-Display: **Settings > Maintenance > Root Access**
+2. Die Bedingungen bis zum Ende lesen und akzeptieren, dann **Open** wählen
+3. Vom PC aus verbinden:
+
+```bash
+ssh root@DRUCKER_IP
+```
+
+Das Standard-Passwort ist `snapmaker`. Details dazu beschreibt die [U1-Firmware-Doku](https://snapmakeru1-extended-firmware.pages.dev/ssh_access).
+
+**Sicherheit:** SSH gibt vollen Zugriff auf den Drucker. Nur im eigenen, vertrauenswürdigen Netzwerk aktivieren, das Standard-Passwort nach dem ersten Login ändern (`passwd`) und Root Access wieder schließen, wenn du ihn nicht brauchst. Achtung: Ein geändertes Passwort überlebt den Neustart nur, wenn die Persistenz (nächster Abschnitt) aktiv ist.
+
+### Persistenz aktivieren (Pflicht für den Autostart)
+
+Ohne Persistenz setzt der U1 das Verzeichnis `/etc` bei jedem Neustart zurück, und genau dort liegt der Autostart der Bridge (`/etc/init.d/S99spoolybridge`). Deshalb **vor** der Installation einmalig auf dem Drucker ausführen:
+
+```bash
+touch /oem/.debug
+```
+
+Fehlt diese Datei, ist die Bridge nach dem nächsten Neustart des Druckers verschwunden und muss neu installiert werden. Hintergrund in der [Persistenz-Doku](https://snapmakeru1-extended-firmware.pages.dev/data_persistence).
+
+### Nach jedem Firmware-Update neu installieren
+
+Firmware-Updates des U1 entfernen alle persistierten Änderungen und löschen auch `/oem/.debug`. Nach einem Update deshalb beide Schritte wiederholen: erst `touch /oem/.debug`, dann den Installationsbefehl aus Schritt 2 erneut ausführen. Dein API-Key aus Spooly bleibt dabei gültig und kann wiederverwendet werden.
+
 ## Fehlerbehebung
 
 ### "Moonraker nicht erreichbar"
@@ -126,12 +158,13 @@ docker run -d \
 
 - Installation einfach nochmal ausführen (Befehl aus Schritt 2), das repariert auch den Autostart
 - Auf dem Snapmaker U1 prüfen: `ls /etc/init.d/S99spoolybridge` muss existieren
+- Snapmaker U1: prüfen ob `/oem/.debug` existiert (`ls /oem/.debug`). Fehlt die Datei, verwirft der Drucker den Autostart bei jedem Neustart, siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz). Nach einem Firmware-Update ist sie immer weg.
 
 ### "Permission denied" beim SSH
 
 - Prüfe Benutzername und Passwort
 - Bei Raspberry Pi: Standard ist `pi` / `raspberry`
-- Bei Snapmaker U1: Standard ist `root`
+- Bei Snapmaker U1: Standard ist `root` / `snapmaker`, SSH muss vorher am Display aktiviert werden (siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz))
 
 ### Bridge läuft aber keine Jobs in Spooly
 
