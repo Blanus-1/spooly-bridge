@@ -448,6 +448,33 @@ def _spoolman_aufbereiten(spoolman_daten) -> dict:
 
 PIDFILE_PFAD = "/var/run/spoolybridge.pid"
 AUTOSTART_SCRIPT_PFAD = "/etc/init.d/S99spoolybridge"
+OEM_DEBUG_PFAD = "/oem/.debug"
+
+
+def _u1_persistenz_aktivieren(oem_debug_pfad: str = OEM_DEBUG_PFAD) -> bool:
+    """Aktiviert auf dem Snapmaker U1 die Persistenz von /etc.
+
+    Der U1 setzt /etc bei jedem Neustart zurueck - und genau dort liegt der
+    Autostart (/etc/init.d/S99spoolybridge). Die Firmware behaelt die
+    Aenderungen nur, solange die Datei /oem/.debug existiert. Frueher musste
+    der Nutzer sie vor der Installation von Hand anlegen (touch /oem/.debug);
+    diese Funktion uebernimmt das jetzt automatisch.
+
+    /oem ueberlebt den Neustart immer, deshalb genuegt es die Marker-Datei
+    einmal anzulegen. Erst ein Firmware-Update entfernt sie wieder - dann
+    setzt die naechste Installation sie erneut.
+
+    Gibt True zurueck wenn die Datei existiert (neu angelegt oder schon da),
+    False wenn sie nicht geschrieben werden konnte. Ob ueberhaupt ein U1
+    vorliegt, prueft der Aufrufer ueber das Verzeichnis /oem.
+    """
+    if os.path.exists(oem_debug_pfad):
+        return True
+    try:
+        Path(oem_debug_pfad).touch()
+        return True
+    except (PermissionError, OSError):
+        return False
 
 
 def _run(cmd):
@@ -631,6 +658,18 @@ def _install(config, log):
         _run("systemctl restart spooly-bridge")
         print("  --> Systemd-Service eingerichtet (startet automatisch)")
     else:
+        # Snapmaker U1: /etc (und damit der gleich geschriebene Autostart)
+        # ueberlebt einen Neustart nur, wenn /oem/.debug existiert. Das
+        # zuerst erledigen, bevor irgendetwas nach /etc geschrieben wird.
+        if os.path.isdir("/oem"):
+            if _u1_persistenz_aktivieren():
+                print("  --> Snapmaker U1 erkannt: Persistenz aktiviert (/oem/.debug)")
+            else:
+                print("  --> WARNUNG: Snapmaker U1 erkannt, aber /oem/.debug konnte")
+                print("      nicht angelegt werden. Ohne diese Datei ist der Autostart")
+                print("      nach dem naechsten Neustart weg. Bitte von Hand anlegen:")
+                print("      touch /oem/.debug")
+
         # Watchdog-Schleife: startet die Bridge automatisch neu wenn sie crasht
         # oder nach einem Auto-Update (os.execv) den Prozess ersetzt hat.
         script_pfad = os.path.join(home, "start-bridge.sh")

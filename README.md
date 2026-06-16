@@ -121,19 +121,21 @@ Das Standard-Passwort ist `snapmaker`. Details dazu beschreibt die [U1-Firmware-
 
 **Sicherheit:** SSH gibt vollen Zugriff auf den Drucker. Nur im eigenen, vertrauenswürdigen Netzwerk aktivieren, das Standard-Passwort nach dem ersten Login ändern (`passwd`) und Root Access wieder schließen, wenn du ihn nicht brauchst. Achtung: Ein geändertes Passwort überlebt den Neustart nur, wenn die Persistenz (nächster Abschnitt) aktiv ist.
 
-### Persistenz aktivieren (Pflicht für den Autostart)
+### Persistenz (erledigt die Installation automatisch)
 
-Ohne Persistenz setzt der U1 das Verzeichnis `/etc` bei jedem Neustart zurück, und genau dort liegt der Autostart der Bridge (`/etc/init.d/S99spoolybridge`). Deshalb **vor** der Installation einmalig auf dem Drucker ausführen:
+Der U1 setzt das Verzeichnis `/etc` bei jedem Neustart zurück, und genau dort liegt der Autostart der Bridge (`/etc/init.d/S99spoolybridge`). Damit er den Neustart übersteht, muss die Datei `/oem/.debug` existieren. Die Installation erkennt den U1 und legt diese Datei selbst an, du musst dich also um nichts kümmern.
+
+Nur falls die Installation die Warnung `/oem/.debug konnte nicht angelegt werden` zeigt (etwa weil sie nicht als `root` läuft), die Datei einmal von Hand anlegen und die Installation danach wiederholen:
 
 ```bash
 touch /oem/.debug
 ```
 
-Fehlt diese Datei, ist die Bridge nach dem nächsten Neustart des Druckers verschwunden und muss neu installiert werden. Hintergrund in der [Persistenz-Doku](https://snapmakeru1-extended-firmware.pages.dev/data_persistence).
+Hintergrund in der [Persistenz-Doku](https://snapmakeru1-extended-firmware.pages.dev/data_persistence).
 
 ### Nach jedem Firmware-Update neu installieren
 
-Firmware-Updates des U1 entfernen alle persistierten Änderungen und löschen auch `/oem/.debug`. Nach einem Update deshalb beide Schritte wiederholen: erst `touch /oem/.debug`, dann den Installationsbefehl aus Schritt 2 erneut ausführen. Dein API-Key aus Spooly bleibt dabei gültig und kann wiederverwendet werden.
+Firmware-Updates des U1 entfernen alle persistierten Änderungen und löschen auch `/oem/.debug`. Nach einem Update deshalb einfach den Installationsbefehl aus Schritt 2 erneut ausführen, die Installation legt `/oem/.debug` dabei automatisch wieder an. Dein API-Key aus Spooly bleibt gültig und kann wiederverwendet werden.
 
 ## Fehlerbehebung
 
