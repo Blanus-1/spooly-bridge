@@ -43,16 +43,17 @@ Ersetze:
 - `BENUTZER` mit dem SSH-Benutzernamen (meistens `pi` oder `root`)
 - `DRUCKER_IP` mit der IP-Adresse deines Druckers
 
-Dann diesen einen Befehl ausführen (lädt die Bridge herunter und richtet alles ein):
+Dann die Bridge herunterladen und einrichten. Der Snapmaker U1 (und andere Drucker mit busybox) haben kein `curl`, und ihr `wget` kann kein HTTPS — darum den Installer mit `python3` laden (das auf jedem Klipper-System ohnehin vorhanden ist):
+
+```bash
+python3 -c "import urllib.request; open('/tmp/install.py','wb').write(urllib.request.urlopen('https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py').read())"
+python3 /tmp/install.py --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
+```
+
+Falls dein System `curl` oder ein HTTPS-fähiges `wget` hat, geht es auch in einer Zeile:
 
 ```bash
 wget -q -O- https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py | python3 - --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
-```
-
-Falls dein System `curl` statt `wget` hat (z.B. manche Raspberry-Pi-Images):
-
-```bash
-curl -sL https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py | python3 - --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
 ```
 
 > **Wichtig:** Der Parameter `--spooly-url https://dev.spooly.eu/api` ist während der Beta-Phase nötig. Sobald die Integration offiziell veröffentlicht wird, entfällt dieser Parameter.
