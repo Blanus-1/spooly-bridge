@@ -102,6 +102,10 @@ def main():
     except Exception as fehler:
         log.debug("Update-Check uebersprungen: %s", fehler)
 
+    # Autostart-Selbstheilung: repariert kaputte Alt-Installationen und
+    # verlorene U1-Persistenz, solange die Bridge noch laeuft
+    _autostart_selbstheilung(config_pfad, log)
+
     # Komponenten initialisieren
     poller = MoonrakerPoller(config.moonraker_url)
     uploader = SpoolyUploader(config.spooly_url, config.api_key)
@@ -129,10 +133,10 @@ def main():
     signal.signal(signal.SIGTERM, _stop)
 
     # WebSocket oder Polling?
-    ws_modus = _starte_websocket_modus(poller, uploader, config, log, lambda: laeuft)
+    ws_modus = _starte_websocket_modus(poller, uploader, config, log, lambda: laeuft, config_pfad)
     if not ws_modus:
         log.info("Fallback auf Polling-Modus (alle %d Sekunden)", config.intervall)
-        _starte_polling_modus(poller, uploader, config, log, lambda: laeuft)
+        _starte_polling_modus(poller, uploader, config, log, lambda: laeuft, config_pfad)
 
     log.info("Bridge beendet.")
 
@@ -150,7 +154,7 @@ def _naechster_backoff_delay(aktueller_delay: int, max_delay: int = RECONNECT_MA
     return min(aktueller_delay * 2, max_delay)
 
 
-def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
+def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn, config_pfad=None) -> bool:
     """Versucht WebSocket-Verbindung aufzubauen. Gibt False zurueck wenn nicht moeglich."""
     try:
         from spooly_bridge.websocket_listener import MoonrakerWebSocket
@@ -235,13 +239,18 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn) -> bool:
             except Exception:
                 pass
 
+            # Autostart im gleichen Rhythmus intakt halten (Firmware-Updates
+            # koennen /oem/.debug im laufenden Betrieb entfernen)
+            if config_pfad:
+                _autostart_selbstheilung(config_pfad, log)
+
     ws.trennen()
     return True
 
 
 # -- Polling-Modus (Fallback) -----------------------
 
-def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
+def _starte_polling_modus(poller, uploader, config, log, laeuft_fn, config_pfad=None):
     """Klassischer Polling-Modus als Fallback wenn WebSocket nicht verfuegbar."""
 
     while laeuft_fn():
@@ -257,6 +266,10 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn):
                 os.execv(sys.executable, [sys.executable, '-m', 'spooly_bridge'] + sys.argv[1:])
         except Exception:
             pass
+
+        # Autostart im gleichen Rhythmus intakt halten
+        if config_pfad:
+            _autostart_selbstheilung(config_pfad, log)
 
         # Warten (abbrechbar)
         for _ in range(config.intervall):
@@ -449,6 +462,9 @@ def _spoolman_aufbereiten(spoolman_daten) -> dict:
 PIDFILE_PFAD = "/var/run/spoolybridge.pid"
 AUTOSTART_SCRIPT_PFAD = "/etc/init.d/S99spoolybridge"
 OEM_DEBUG_PFAD = "/oem/.debug"
+OEM_VERZEICHNIS = "/oem"
+INITD_VERZEICHNIS = "/etc/init.d"
+RCS_PFAD = "/etc/init.d/rcS"
 
 
 def _u1_persistenz_aktivieren(oem_debug_pfad: str = OEM_DEBUG_PFAD) -> bool:
@@ -475,6 +491,95 @@ def _u1_persistenz_aktivieren(oem_debug_pfad: str = OEM_DEBUG_PFAD) -> bool:
         return True
     except (PermissionError, OSError):
         return False
+
+
+def _ist_systemd_system() -> bool:
+    return os.path.exists("/usr/bin/systemctl") or os.path.exists("/bin/systemctl")
+
+
+def _datei_sicherstellen(pfad: str, soll_inhalt: str, modus: int = 0o755) -> bool:
+    """Schreibt die Datei neu, wenn sie fehlt oder vom Soll-Inhalt abweicht.
+
+    Gibt True zurueck wenn geschrieben wurde. Der Inhaltsvergleich sorgt
+    dafuer, dass auch veraltete Fassungen (z.B. ein Watchdog-Script ohne
+    HOME-Export aus v1.3.x) auf den aktuellen Stand kommen.
+    """
+    try:
+        with open(pfad, "r") as f:
+            if f.read() == soll_inhalt:
+                return False
+    except (FileNotFoundError, OSError):
+        pass
+    with open(pfad, "w") as f:
+        f.write(soll_inhalt)
+    os.chmod(pfad, modus)
+    return True
+
+
+def _autostart_selbstheilung(config_pfad: str, log) -> None:
+    """Repariert den Autostart einer laufenden Bridge - ohne Neuinstallation.
+
+    Laeuft beim Start und danach im Heartbeat-Rhythmus mit. Hintergrund:
+    Installationen vor v1.4.0 haben einen kaputten rcS-Eintrag statt des
+    init.d-Scripts, und auf dem Snapmaker U1 raeumen Firmware-Updates die
+    Persistenz-Marker-Datei /oem/.debug wieder weg. Beides fiel bisher erst
+    beim naechsten Neustart auf - dann war die Bridge tot und konnte sich
+    nicht mehr selbst helfen. Solange sie noch laeuft, stellt diese Funktion
+    deshalb alles wieder her, was der naechste Boot braucht.
+
+    Auf systemd-Systemen (Raspberry Pi etc.) passiert bewusst nichts: dort
+    kuemmert sich systemd um Neustarts und die Unit liegt nicht in /etc.
+    Alle Reparaturen sind idempotent; geloggt wird nur, wenn wirklich etwas
+    repariert wurde.
+    """
+    if _ist_systemd_system():
+        return
+
+    home = str(Path.home())
+    if home in ("", "/"):
+        # Boot-Umgebung ohne brauchbares HOME - hier nichts anfassen,
+        # sonst landen die Scripts im Wurzelverzeichnis
+        return
+
+    repariert = []
+    try:
+        # 1) U1-Persistenz: ohne /oem/.debug verwirft die Firmware /etc
+        #    beim naechsten Neustart (Firmware-Updates loeschen die Datei)
+        if os.path.isdir(OEM_VERZEICHNIS) and not os.path.exists(OEM_DEBUG_PFAD):
+            if _u1_persistenz_aktivieren(OEM_DEBUG_PFAD):
+                repariert.append("/oem/.debug neu angelegt")
+            else:
+                log.warning(
+                    "Selbstheilung: /oem/.debug fehlt und laesst sich nicht anlegen - "
+                    "der Autostart ueberlebt den naechsten Neustart nicht"
+                )
+
+        # 2) Watchdog-Script aktuell halten (alte Fassungen ohne HOME-Export
+        #    scheiterten beim Boot)
+        script_pfad = os.path.join(home, "start-bridge.sh")
+        if _datei_sicherstellen(script_pfad, _watchdog_script_inhalt(home, sys.executable, config_pfad)):
+            repariert.append("Watchdog-Script erneuert")
+
+        # 3) init.d-Script fuer den Boot
+        if os.path.isdir(INITD_VERZEICHNIS) and shutil.which("start-stop-daemon"):
+            if _datei_sicherstellen(AUTOSTART_SCRIPT_PFAD, _autostart_script_inhalt(script_pfad)):
+                repariert.append("init.d-Autostart erneuert")
+
+        # 4) rcS-Altlasten frueherer Versionen entfernen (blockierten den Boot)
+        if os.path.exists(RCS_PFAD):
+            with open(RCS_PFAD, "r") as f:
+                inhalt = f.read()
+            bereinigt = _rcs_altlasten_entfernen(inhalt)
+            if bereinigt != inhalt:
+                with open(RCS_PFAD, "w") as f:
+                    f.write(bereinigt)
+                repariert.append("rcS-Altlast entfernt")
+    except (PermissionError, OSError) as fehler:
+        log.debug("Selbstheilung uebersprungen: %s", fehler)
+        return
+
+    if repariert:
+        log.info("Autostart repariert: %s", ", ".join(repariert))
 
 
 def _run(cmd):
@@ -680,7 +785,7 @@ def _install(config, log):
         # Altlast aufraeumen: fruehere Versionen haengten den Start-Aufruf
         # direkt an rcS an - das funktionierte beim Boot nicht (HOME=/)
         # und blockierte rcS in der Watchdog-Schleife
-        rcs_pfad = "/etc/init.d/rcS"
+        rcs_pfad = RCS_PFAD
         if os.path.exists(rcs_pfad):
             try:
                 with open(rcs_pfad, "r") as f:
