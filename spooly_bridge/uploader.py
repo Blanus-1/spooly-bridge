@@ -81,20 +81,27 @@ class SpoolyUploader:
         drucker_name: str = "Klipper",
         drucker_id: str = None,
         firmware: str = None,
+        install_metadaten: dict = None,
     ) -> Optional[dict]:
         """
         Heartbeat an Spooly senden.
         Gibt die Antwort zurueck (enthaelt ggf. Update-Infos und Diagnose-Einstellungen).
+
+        install_metadaten (install_path, install_method, os_family, is_paxx)
+        lassen Spooly erkennen, ob diese Installation einen Neustart
+        ueberlebt - Grundlage fuer die Migrations-Warnung in der UI.
         """
         from spooly_bridge import __version__
-        ergebnis = self._post("/klipper/bridge/heartbeat", {
+        payload = {
             "bridge_api_key": self.api_key,
             "printer_name": drucker_name,
             "printer_id": drucker_id,
             "firmware_version": firmware,
             "bridge_version": __version__,
-        })
-        return ergebnis
+        }
+        if install_metadaten:
+            payload.update(install_metadaten)
+        return self._post("/klipper/bridge/heartbeat", payload)
 
     def jobs_senden(
         self,

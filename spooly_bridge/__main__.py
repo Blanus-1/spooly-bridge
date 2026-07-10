@@ -23,6 +23,25 @@ from spooly_bridge.moonraker import MoonrakerPoller
 from spooly_bridge.uploader import SpoolyUploader
 
 
+def _basis_verzeichnis(modul_pfad: str = None) -> str:
+    """Verzeichnis, in dem die Bridge installiert ist (Eltern des Pakets).
+
+    Beim klassischen Layout liegt das Paket unter ~/spooly_bridge - die Basis
+    ist dann $HOME und alles verhaelt sich wie in frueheren Versionen. Der
+    Spooly-Installer legt das Paket auf Druckern mit fluechtigem Home (Paxx
+    setzt /root beim Boot zurueck) stattdessen z.B. unter
+    /userdata/spooly_bridge/spooly_bridge ab - Config, Log, Watchdog und
+    Autostart wandern dann automatisch mit auf die persistente Partition.
+
+    pip-Installationen (site-packages) verhalten sich weiter wie bisher:
+    dort gehoeren Config und Log ins Home, nicht neben den Paket-Code.
+    """
+    basis = Path(modul_pfad or __file__).resolve().parent.parent
+    if basis.name in ("site-packages", "dist-packages"):
+        return str(Path.home())
+    return str(basis)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Spooly Bridge - Verbindet Klipper/Moonraker mit Spooly"
@@ -55,7 +74,7 @@ def main():
     log.addHandler(konsole)
 
     # Datei mit Rotation (nur wenn nicht ueber systemd gestartet)
-    log_pfad = os.path.join(str(Path.home()), "bridge.log")
+    log_pfad = os.path.join(_basis_verzeichnis(), "bridge.log")
     try:
         from logging.handlers import RotatingFileHandler
         datei_handler = RotatingFileHandler(
@@ -70,7 +89,7 @@ def main():
         _uninstall(log)
         return
 
-    config_pfad = args.config or str(Path.home() / ".spooly-bridge.json")
+    config_pfad = args.config or os.path.join(_basis_verzeichnis(), ".spooly-bridge.json")
     config = lade_config(config_pfad)
 
     if args.key:
@@ -89,7 +108,7 @@ def main():
     speichere_config(config, config_pfad)
 
     if args.install:
-        _install(config, log)
+        _install(config, log, config_pfad)
         return
 
     # Update-Check beim Start
@@ -331,6 +350,7 @@ def _sende_heartbeat(poller, uploader, log):
     ergebnis = uploader.heartbeat(
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
         firmware=drucker_info.get("software_version") if drucker_info else None,
+        install_metadaten=_install_metadaten_ermitteln(),
     )
 
     if ergebnis and ergebnis.get("force_reimport"):
@@ -461,10 +481,33 @@ def _spoolman_aufbereiten(spoolman_daten) -> dict:
 
 PIDFILE_PFAD = "/var/run/spoolybridge.pid"
 AUTOSTART_SCRIPT_PFAD = "/etc/init.d/S99spoolybridge"
+SYSTEMD_UNIT_PFAD = "/etc/systemd/system/spooly-bridge.service"
 OEM_DEBUG_PFAD = "/oem/.debug"
 OEM_VERZEICHNIS = "/oem"
+PAXX_MARKER_PFAD = "/oem/paxx"
 INITD_VERZEICHNIS = "/etc/init.d"
 RCS_PFAD = "/etc/init.d/rcS"
+
+
+def _install_metadaten_ermitteln() -> dict:
+    """Install-Metadaten fuer den Heartbeat.
+
+    Spooly leitet daraus ab, ob diese Installation einen Neustart ueberlebt,
+    und zeigt Nutzern mit instabilem Pfad (z.B. /root auf Paxx-Firmware,
+    die /root beim Boot zuruecksetzt) eine Migrations-Warnung in der UI.
+    """
+    if _ist_systemd_system():
+        os_family = "debian"
+        install_method = "systemd" if os.path.exists(SYSTEMD_UNIT_PFAD) else "none"
+    else:
+        os_family = "buildroot"
+        install_method = "initd" if os.path.exists(AUTOSTART_SCRIPT_PFAD) else "watchdog-only"
+    return {
+        "install_path": _basis_verzeichnis(),
+        "install_method": install_method,
+        "os_family": os_family,
+        "is_paxx": os.path.exists(PAXX_MARKER_PFAD),
+    }
 
 
 def _u1_persistenz_aktivieren(oem_debug_pfad: str = OEM_DEBUG_PFAD) -> bool:
@@ -535,9 +578,12 @@ def _autostart_selbstheilung(config_pfad: str, log) -> None:
     if _ist_systemd_system():
         return
 
-    home = str(Path.home())
-    if home in ("", "/"):
-        # Boot-Umgebung ohne brauchbares HOME - hier nichts anfassen,
+    # Basis statt Path.home(): bei Installationen auf persistenter Partition
+    # (z.B. /userdata) muessen Watchdog und Autostart dort erneuert werden,
+    # nicht im fluechtigen Home
+    basis = _basis_verzeichnis()
+    if basis in ("", "/"):
+        # Boot-Umgebung ohne brauchbare Basis - hier nichts anfassen,
         # sonst landen die Scripts im Wurzelverzeichnis
         return
 
@@ -556,8 +602,8 @@ def _autostart_selbstheilung(config_pfad: str, log) -> None:
 
         # 2) Watchdog-Script aktuell halten (alte Fassungen ohne HOME-Export
         #    scheiterten beim Boot)
-        script_pfad = os.path.join(home, "start-bridge.sh")
-        if _datei_sicherstellen(script_pfad, _watchdog_script_inhalt(home, sys.executable, config_pfad)):
+        script_pfad = os.path.join(basis, "start-bridge.sh")
+        if _datei_sicherstellen(script_pfad, _watchdog_script_inhalt(basis, sys.executable, config_pfad)):
             repariert.append("Watchdog-Script erneuert")
 
         # 3) init.d-Script fuer den Boot
@@ -598,19 +644,21 @@ def _pkill(muster):
         pass
 
 
-def _watchdog_script_inhalt(home: str, python: str, config_pfad: str) -> str:
+def _watchdog_script_inhalt(basis: str, python: str, config_pfad: str) -> str:
     """Watchdog-Script: haelt die Bridge am Laufen, auch nach Crash oder Update.
 
     HOME und --config sind explizit gesetzt, weil busybox init Boot-Prozesse
     mit HOME=/ und cwd=/ startet. Ohne das findet die Bridge beim Boot weder
-    ihr Modul noch ihre Config und beendet sich sofort wieder.
+    ihr Modul noch ihre Config und beendet sich sofort wieder. Als
+    Arbeitsverzeichnis dient die Installations-Basis (dort liegt das Paket),
+    beim klassischen Layout ist das weiterhin $HOME.
     """
     return (
         "#!/bin/sh\n"
         "# Spooly Bridge Watchdog: startet die Bridge neu wenn sie crasht\n"
         "# oder sich nach einem Auto-Update beendet hat.\n"
-        f"export HOME={home}\n"
-        f"cd {home}\n"
+        f"export HOME={basis}\n"
+        f"cd {basis}\n"
         "while true; do\n"
         f"  {python} -m spooly_bridge --config {config_pfad}\n"
         "  sleep 10\n"
@@ -662,12 +710,13 @@ def _autostart_script_inhalt(script_pfad: str) -> str:
     )
 
 
-def _systemd_service_inhalt(home: str, python: str, config_pfad: str) -> str:
+def _systemd_service_inhalt(basis: str, python: str, config_pfad: str) -> str:
     """Systemd-Unit fuer Debian/Raspberry-Pi-Systeme.
 
     --config explizit, weil systemd-Units ohne HOME laufen und Path.home()
     dann auf den passwd-Eintrag von root zeigt statt auf den User der die
-    Bridge installiert hat.
+    Bridge installiert hat. WorkingDirectory ist die Installations-Basis,
+    damit python -m das Paket findet.
     """
     return (
         "[Unit]\n"
@@ -676,7 +725,7 @@ def _systemd_service_inhalt(home: str, python: str, config_pfad: str) -> str:
         "Wants=network-online.target\n"
         "\n"
         "[Service]\n"
-        f"WorkingDirectory={home}\n"
+        f"WorkingDirectory={basis}\n"
         f"ExecStart={python} -m spooly_bridge --config {config_pfad}\n"
         "Restart=always\n"
         "RestartSec=10\n"
@@ -698,8 +747,15 @@ def _rcs_altlasten_entfernen(inhalt: str) -> str:
     return "".join(z for z in zeilen if "start-bridge.sh" not in z)
 
 
-def _install(config, log):
-    home = str(Path.home())
+def _install(config, log, config_pfad):
+    """Autostart einrichten und Bridge starten.
+
+    config_pfad kommt vom Aufrufer durchgereicht (main() hat die Config dort
+    bereits gespeichert) - Watchdog und systemd-Unit muessen auf exakt
+    dieselbe Datei zeigen, sonst laeuft die Bridge nach dem Boot mit einer
+    anderen Config als bei der Installation.
+    """
+    basis = _basis_verzeichnis()
     python = sys.executable
 
     print()
@@ -747,13 +803,12 @@ def _install(config, log):
 
     # -- Schritt 3: Autostart einrichten ---------------
     print("[3/4] Autostart einrichten...")
-    has_systemd = os.path.exists("/usr/bin/systemctl") or os.path.exists("/bin/systemctl")
-    config_pfad = os.path.join(home, ".spooly-bridge.json")
+    has_systemd = _ist_systemd_system()
 
     if has_systemd:
         try:
-            with open("/etc/systemd/system/spooly-bridge.service", "w") as f:
-                f.write(_systemd_service_inhalt(home, python, config_pfad))
+            with open(SYSTEMD_UNIT_PFAD, "w") as f:
+                f.write(_systemd_service_inhalt(basis, python, config_pfad))
         except PermissionError:
             print("  --> FEHLER: Keine Berechtigung fuer /etc/systemd/system/")
             print("      Bitte die Installation mit sudo bzw. als root ausfuehren.")
@@ -777,9 +832,9 @@ def _install(config, log):
 
         # Watchdog-Schleife: startet die Bridge automatisch neu wenn sie crasht
         # oder nach einem Auto-Update (os.execv) den Prozess ersetzt hat.
-        script_pfad = os.path.join(home, "start-bridge.sh")
+        script_pfad = os.path.join(basis, "start-bridge.sh")
         with open(script_pfad, "w") as f:
-            f.write(_watchdog_script_inhalt(home, python, config_pfad))
+            f.write(_watchdog_script_inhalt(basis, python, config_pfad))
         os.chmod(script_pfad, 0o755)
 
         # Altlast aufraeumen: fruehere Versionen haengten den Start-Aufruf
@@ -848,18 +903,19 @@ def _install(config, log):
         print("  Status:      systemctl status spooly-bridge")
         print("  Logs:        journalctl -u spooly-bridge -f")
     else:
-        print("  Logs:        tail -f %s/bridge.log" % home)
+        print("  Logs:        tail -f %s/bridge.log" % basis)
     print("  Entfernen:   python3 -m spooly_bridge --uninstall")
     print()
 
 
 def _uninstall(log):
+    basis = _basis_verzeichnis()
     home = str(Path.home())
     log.info("Deinstalliere Spooly Bridge...")
-    if os.path.exists("/etc/systemd/system/spooly-bridge.service"):
+    if os.path.exists(SYSTEMD_UNIT_PFAD):
         _run("systemctl stop spooly-bridge")
         _run("systemctl disable spooly-bridge")
-        os.remove("/etc/systemd/system/spooly-bridge.service")
+        os.remove(SYSTEMD_UNIT_PFAD)
         _run("systemctl daemon-reload")
         log.info("  Systemd-Service entfernt")
 
@@ -882,11 +938,16 @@ def _uninstall(log):
         except OSError:
             pass
 
-    for name in ["start-bridge.sh", ".spooly-bridge.json", "bridge.log"]:
-        pfad = os.path.join(home, name)
-        if os.path.exists(pfad):
-            os.remove(pfad)
-            log.info("  %s entfernt", name)
+    # Dateien an der Installations-Basis entfernen; Home zusaetzlich
+    # abraeumen, falls dort noch Altlasten einer frueheren Installation
+    # liegen (vor v1.5.0 lag alles in $HOME)
+    verzeichnisse = [basis] if basis == home else [basis, home]
+    for verzeichnis in verzeichnisse:
+        for name in ["start-bridge.sh", ".spooly-bridge.json", "bridge.log"]:
+            pfad = os.path.join(verzeichnis, name)
+            if os.path.exists(pfad):
+                os.remove(pfad)
+                log.info("  %s entfernt", pfad)
     init_pfad = "/etc/init.d/rcS"
     if os.path.exists(init_pfad):
         try:
@@ -899,10 +960,11 @@ def _uninstall(log):
                 log.info("  Autostart-Eintrag entfernt")
         except PermissionError:
             log.warning("  Konnte init.d nicht bearbeiten")
-    modul = os.path.join(home, "spooly_bridge")
-    if os.path.isdir(modul):
-        shutil.rmtree(modul)
-        log.info("  Bridge-Dateien entfernt")
+    for verzeichnis in verzeichnisse:
+        modul = os.path.join(verzeichnis, "spooly_bridge")
+        if os.path.isdir(modul):
+            shutil.rmtree(modul)
+            log.info("  Bridge-Dateien entfernt (%s)", modul)
     log.info("Spooly Bridge deinstalliert.")
 
 

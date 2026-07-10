@@ -13,3 +13,4 @@ venv/
 
 # Lokale Tests (werden nicht ausgeliefert)
 tests/
+start-bridge.sh

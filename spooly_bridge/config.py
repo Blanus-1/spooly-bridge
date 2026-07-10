@@ -1,8 +1,9 @@
 """
 Konfigurationsverwaltung fuer die Spooly Bridge.
 
-Die Konfiguration wird in ~/.spooly-bridge.json gespeichert.
-CLI-Argumente haben immer Vorrang vor der gespeicherten Konfiguration.
+Die Konfiguration liegt als .spooly-bridge.json im Installations-Verzeichnis
+(beim klassischen Layout ist das $HOME). CLI-Argumente haben immer Vorrang
+vor der gespeicherten Konfiguration.
 """
 
 import json
