@@ -503,7 +503,9 @@ def _install_metadaten_ermitteln() -> dict:
         os_family = "buildroot"
         install_method = "initd" if os.path.exists(AUTOSTART_SCRIPT_PFAD) else "watchdog-only"
     return {
-        "install_path": _basis_verzeichnis(),
+        # Kuerzen auf das Backend-Limit: ein ueberlanger Pfad darf nicht
+        # den gesamten Heartbeat mit 422 scheitern lassen
+        "install_path": _basis_verzeichnis()[:300],
         "install_method": install_method,
         "os_family": os_family,
         "is_paxx": os.path.exists(PAXX_MARKER_PFAD),
@@ -658,8 +660,10 @@ def _watchdog_script_inhalt(basis: str, python: str, config_pfad: str) -> str:
         "# Spooly Bridge Watchdog: startet die Bridge neu wenn sie crasht\n"
         "# oder sich nach einem Auto-Update beendet hat.\n"
         f"export HOME={basis}\n"
-        f"cd {basis}\n"
         "while true; do\n"
+        "  # cd in der Schleife: liegt die Basis auf einer eigenen Partition\n"
+        "  # (z.B. /userdata), kann sie beim Boot noch fehlen - dann warten\n"
+        f"  cd {basis} || {{ sleep 10; continue; }}\n"
         f"  {python} -m spooly_bridge --config {config_pfad}\n"
         "  sleep 10\n"
         "done\n"
@@ -682,8 +686,11 @@ def _autostart_script_inhalt(script_pfad: str) -> str:
         "\n"
         "case \"$1\" in\n"
         "    start)\n"
-        "        [ -x \"$SCRIPT\" ] || exit 0\n"
-        "        start-stop-daemon -S -b -m -p \"$PIDFILE\" -x /bin/sh -- \"$SCRIPT\"\n"
+        "        # Nicht aufgeben wenn das Watchdog-Script (noch) fehlt: liegt\n"
+        "        # es auf einer eigenen Partition (z.B. /userdata), kann die\n"
+        "        # beim Boot spaeter mounten als rcS laeuft. Im Hintergrund\n"
+        "        # bis zu 60s darauf warten - rcS blockiert das nicht.\n"
+        "        start-stop-daemon -S -b -m -p \"$PIDFILE\" -x /bin/sh -- -c \"n=0; while [ ! -x $SCRIPT ] && [ \\$n -lt 30 ]; do sleep 2; n=\\$((n+1)); done; [ -x $SCRIPT ] && exec /bin/sh $SCRIPT\"\n"
         "        ;;\n"
         "    stop)\n"
         "        # Erst den Watchdog stoppen, sonst startet er die Bridge\n"
