@@ -82,6 +82,8 @@ class SpoolyUploader:
         drucker_id: str = None,
         firmware: str = None,
         install_metadaten: dict = None,
+        moonraker_url: str = None,
+        moonraker_erreichbar: bool = None,
     ) -> Optional[dict]:
         """
         Heartbeat an Spooly senden.
@@ -90,6 +92,8 @@ class SpoolyUploader:
         install_metadaten (install_path, install_method, os_family, is_paxx)
         lassen Spooly erkennen, ob diese Installation einen Neustart
         ueberlebt - Grundlage fuer die Migrations-Warnung in der UI.
+        moonraker_url/moonraker_erreichbar sagen Spooly, ob die Bridge ihren
+        Drucker ueberhaupt findet (sonst zeigt Spooly nur "Bridge online").
         """
         from spooly_bridge import __version__
         payload = {
@@ -101,6 +105,10 @@ class SpoolyUploader:
         }
         if install_metadaten:
             payload.update(install_metadaten)
+        if moonraker_url:
+            payload["moonraker_url"] = moonraker_url
+        if moonraker_erreichbar is not None:
+            payload["moonraker_reachable"] = moonraker_erreichbar
         return self._post("/klipper/bridge/heartbeat", payload)
 
     def jobs_senden(
