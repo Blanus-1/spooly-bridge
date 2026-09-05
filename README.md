@@ -14,7 +14,7 @@ Die Bridge läuft als kleines Script neben deiner Moonraker-Instanz und sendet a
 - Spoolman-Integration (wenn installiert)
 - Automatische Updates (steuerbar in Spooly)
 - Keine externen Abhängigkeiten (nur Python-Standardbibliothek)
-- Läuft auf Raspberry Pi, Snapmaker U1, Desktop, Docker
+- Läuft auf Raspberry Pi, Snapmaker U1 und anderen Klipper-Hosts, auch in Docker
 
 ## Voraussetzungen
 
@@ -22,6 +22,8 @@ Die Bridge läuft als kleines Script neben deiner Moonraker-Instanz und sendet a
 - **SSH-Zugang** zum Drucker (beim Snapmaker U1 muss SSH erst am Display aktiviert werden, siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz))
 
 Mehr nicht. Kein Git, kein Kopieren vom PC, die Bridge lädt sich selbst herunter.
+
+**Wichtig:** Der Installations-Befehl gehört in die SSH-Sitzung auf dem Drucker, nicht ins Terminal deines Macs oder PCs. Führst du ihn trotzdem auf einem Mac aus, sagt dir die Bridge das und bricht ab. Wer sie bewusst auf dem Mac betreiben will, gibt die Adresse des Druckers mit (`--moonraker-url http://DRUCKER_IP:7125`); sie läuft dann ohne Autostart und nur, solange der Mac wach ist. Windows wird nicht unterstützt.
 
 ## Installation (Schritt für Schritt)
 

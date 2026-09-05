@@ -47,7 +47,7 @@ def main():
         description="Spooly Bridge - Verbindet Klipper/Moonraker mit Spooly"
     )
     parser.add_argument("--key", "-k", help="Spooly Bridge API-Key")
-    parser.add_argument("--moonraker-url", "-m", default="http://localhost:7125", help="Moonraker URL")
+    parser.add_argument("--moonraker-url", "-m", default=MOONRAKER_DEFAULT_URL, help="Moonraker URL")
     parser.add_argument("--spooly-url", "-s", default="https://api.spooly.eu/api", help="Spooly API URL")
     parser.add_argument("--intervall", "-i", type=int, default=300, help="Polling-Intervall in Sekunden (Standard: 300)")
     parser.add_argument("--config", "-c", type=str, default=None, help="Pfad zur Konfigurationsdatei")
@@ -94,7 +94,7 @@ def main():
 
     if args.key:
         config.api_key = args.key
-    if args.moonraker_url != "http://localhost:7125":
+    if args.moonraker_url != MOONRAKER_DEFAULT_URL:
         config.moonraker_url = args.moonraker_url
     if args.spooly_url != "https://api.spooly.eu/api":
         config.spooly_url = args.spooly_url
@@ -346,11 +346,15 @@ def _sende_heartbeat(poller, uploader, log):
     drucker_info = poller.drucker_info()
 
     # Heartbeat auch ohne Moonraker-Antwort senden - Spooly soll wissen
-    # dass die Bridge laeuft, auch wenn Moonraker noch hochfaehrt
+    # dass die Bridge laeuft, auch wenn Moonraker noch hochfaehrt. Ob und wo
+    # Moonraker erreicht wurde geht mit, damit Spooly eine Bridge ohne
+    # Drucker-Kontakt (falsche URL, falscher Rechner) auch so anzeigen kann.
     ergebnis = uploader.heartbeat(
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
         firmware=drucker_info.get("software_version") if drucker_info else None,
         install_metadaten=_install_metadaten_ermitteln(),
+        moonraker_url=poller.basis_url,
+        moonraker_erreichbar=drucker_info is not None,
     )
 
     if ergebnis and ergebnis.get("force_reimport"):
@@ -496,7 +500,11 @@ def _install_metadaten_ermitteln() -> dict:
     und zeigt Nutzern mit instabilem Pfad (z.B. /root auf Paxx-Firmware,
     die /root beim Boot zuruecksetzt) eine Migrations-Warnung in der UI.
     """
-    if _ist_systemd_system():
+    if _ist_desktop_system():
+        # Mac/PC: die Bridge richtet dort keinen Autostart ein
+        os_family = "macos" if sys.platform == "darwin" else "windows"
+        install_method = "none"
+    elif _ist_systemd_system():
         os_family = "debian"
         install_method = "systemd" if os.path.exists(SYSTEMD_UNIT_PFAD) else "none"
     else:
@@ -542,6 +550,51 @@ def _ist_systemd_system() -> bool:
     return os.path.exists("/usr/bin/systemctl") or os.path.exists("/bin/systemctl")
 
 
+MOONRAKER_DEFAULT_URL = "http://localhost:7125"
+
+
+def _ist_desktop_system(plattform: str = None) -> bool:
+    """Mac oder Windows-PC statt Drucker.
+
+    Dort gibt es weder systemd noch init.d, und die Bridge sucht Moonraker
+    per Default unter localhost - auf einem Desktop laeuft da nichts.
+    """
+    plattform = plattform or sys.platform
+    return plattform == "darwin" or plattform.startswith("win")
+
+
+def _desktop_pruefung(moonraker_url: str, plattform: str = None):
+    """Meldung (str) fuer Installationen auf Mac/Windows, None wenn nichts dagegen spricht.
+
+    Die Bridge gehoert auf den Drucker. Auf einem Mac laeuft sie zur Not
+    gegen einen Moonraker im Netz (--moonraker-url), aber ohne Autostart und
+    nur solange der Rechner wach ist. Windows wird nicht unterstuetzt: kein
+    /bin/sh, kein nohup, und der Neustart nach einem Update (os.execv)
+    funktioniert dort nicht.
+    """
+    plattform = plattform or sys.platform
+    if not _ist_desktop_system(plattform):
+        return None
+    if plattform.startswith("win"):
+        return (
+            "  Windows wird von der Bridge nicht unterstuetzt.\n"
+            "  Bitte per SSH auf den Drucker (Raspberry Pi, Snapmaker U1, ...)\n"
+            "  und den Installations-Befehl dort ausfuehren."
+        )
+    if moonraker_url.rstrip("/") == MOONRAKER_DEFAULT_URL:
+        return (
+            "  Du installierst auf einem Mac, nicht auf dem Drucker. Dort gibt es\n"
+            "  keinen Moonraker unter %s.\n"
+            "\n"
+            "  Zwei Wege:\n"
+            "  1) Empfohlen: per SSH auf den Drucker und dort denselben Befehl ausfuehren.\n"
+            "  2) Bridge auf diesem Mac betreiben (ohne Autostart, nur solange der Mac\n"
+            "     wach ist): denselben Befehl wiederholen und die Adresse des Druckers\n"
+            "     angeben, z.B. --moonraker-url http://192.168.1.50:7125" % MOONRAKER_DEFAULT_URL
+        )
+    return None
+
+
 def _datei_sicherstellen(pfad: str, soll_inhalt: str, modus: int = 0o755) -> bool:
     """Schreibt die Datei neu, wenn sie fehlt oder vom Soll-Inhalt abweicht.
 
@@ -574,10 +627,11 @@ def _autostart_selbstheilung(config_pfad: str, log) -> None:
 
     Auf systemd-Systemen (Raspberry Pi etc.) passiert bewusst nichts: dort
     kuemmert sich systemd um Neustarts und die Unit liegt nicht in /etc.
+    Auf einem Mac/PC gibt es nichts zu reparieren, dort existiert kein Autostart.
     Alle Reparaturen sind idempotent; geloggt wird nur, wenn wirklich etwas
     repariert wurde.
     """
-    if _ist_systemd_system():
+    if _ist_systemd_system() or _ist_desktop_system():
         return
 
     # Basis statt Path.home(): bei Installationen auf persistenter Partition
@@ -764,12 +818,28 @@ def _install(config, log, config_pfad):
     """
     basis = _basis_verzeichnis()
     python = sys.executable
+    ist_desktop = _ist_desktop_system()
 
     print()
     print("=" * 50)
     print("  Spooly Bridge v%s - Installation" % __version__)
     print("=" * 50)
     print()
+
+    # Mac/Windows statt Drucker: ohne Drucker-Adresse geht es nicht weiter
+    meldung = _desktop_pruefung(config.moonraker_url)
+    if meldung:
+        print(meldung)
+        print()
+        print("  Installation abgebrochen.")
+        print()
+        sys.exit(1)
+    if ist_desktop:
+        print("  Hinweis: Du installierst auf einem Mac, nicht auf dem Drucker.")
+        print("  Die Bridge fragt Moonraker unter %s ab, laeuft nur solange" % config.moonraker_url)
+        print("  der Mac wach ist und startet nach einem Neustart nicht von selbst.")
+        print("  Empfohlen ist die Installation direkt auf dem Drucker (per SSH).")
+        print()
 
     # -- Schritt 1: Moonraker pruefen --------------------
     print("[1/4] Moonraker pruefen...")
@@ -791,6 +861,9 @@ def _install(config, log, config_pfad):
     heartbeat = uploader.heartbeat(
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
         firmware=drucker_info.get("software_version") if drucker_info else None,
+        install_metadaten=_install_metadaten_ermitteln(),
+        moonraker_url=poller.basis_url,
+        moonraker_erreichbar=drucker_info is not None,
     )
     if heartbeat and heartbeat.get("success"):
         spooly_ok = True
@@ -812,7 +885,23 @@ def _install(config, log, config_pfad):
     print("[3/4] Autostart einrichten...")
     has_systemd = _ist_systemd_system()
 
-    if has_systemd:
+    if ist_desktop:
+        # Kein Autostart auf dem Mac. Die Watchdog-Schleife laeuft im
+        # Hintergrund weiter, wenn das Terminal zugeht, und startet die
+        # Bridge nach Crash oder Update neu - bis zum naechsten Neustart.
+        script_pfad = os.path.join(basis, "start-bridge.sh")
+        with open(script_pfad, "w") as f:
+            f.write(_watchdog_script_inhalt(basis, python, config_pfad))
+        os.chmod(script_pfad, 0o755)
+        subprocess.Popen(
+            ["nohup", "/bin/sh", script_pfad],
+            stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"),
+            start_new_session=True,
+        )
+        print("  --> Kein Autostart auf dem Mac. Die Bridge laeuft jetzt im Hintergrund")
+        print("      bis zum naechsten Neustart, danach von Hand starten:")
+        print("      /bin/sh %s &" % script_pfad)
+    elif has_systemd:
         try:
             with open(SYSTEMD_UNIT_PFAD, "w") as f:
                 f.write(_systemd_service_inhalt(basis, python, config_pfad))
@@ -903,7 +992,7 @@ def _install(config, log, config_pfad):
     print()
     print("  Moonraker:   %s" % (("verbunden (%s)" % drucker_info.get("hostname", "")) if drucker_info else "nicht erreichbar"))
     print("  Spooly:      verbunden")
-    print("  Autostart:   eingerichtet")
+    print("  Autostart:   %s" % ("keiner (Mac) - laeuft bis zum naechsten Neustart" if ist_desktop else "eingerichtet"))
     print("  Druckjobs:   %d gefunden" % len(neue_jobs))
     print()
     if has_systemd:

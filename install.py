@@ -47,6 +47,29 @@ def argumente_parsen(argv):
     return parser.parse_args(argv)
 
 
+def plattform_pruefen(moonraker_url, plattform=sys.platform):
+    """Meldung, wenn der Befehl auf einem Mac/PC statt auf dem Drucker laeuft.
+
+    Gibt None zurueck, wenn die Installation weitergehen kann. Die Pruefung
+    laeuft VOR dem Download, damit niemand erst Dateien zieht und dann an
+    derselben Stelle scheitert.
+    """
+    if plattform.startswith("win"):
+        return (
+            "Windows wird von der Bridge nicht unterstuetzt. Bitte per SSH auf den\n"
+            "Drucker (Raspberry Pi, Snapmaker U1, ...) und den Befehl dort ausfuehren."
+        )
+    if plattform == "darwin" and not moonraker_url:
+        return (
+            "Du bist auf einem Mac, nicht auf dem Drucker - hier gibt es keinen Moonraker.\n"
+            "Empfohlen: per SSH auf den Drucker und den Befehl dort ausfuehren.\n"
+            "Alternativ laeuft die Bridge auf diesem Mac (ohne Autostart, nur solange er\n"
+            "wach ist), wenn du die Adresse des Druckers angibst:\n"
+            "  --moonraker-url http://<IP-des-Druckers>:7125"
+        )
+    return None
+
+
 def install_kommando(python, args):
     """Baut den Aufruf der eigentlichen Installation zusammen."""
     kommando = [python, "-m", "spooly_bridge", "--install", "--key", args.key]
@@ -83,6 +106,13 @@ def main():
     args = argumente_parsen(sys.argv[1:])
     home = Path.home()
     ziel = home / "spooly_bridge"
+
+    meldung = plattform_pruefen(args.moonraker_url)
+    if meldung:
+        print()
+        print(meldung)
+        print()
+        sys.exit(1)
 
     print()
     print("Spooly Bridge wird heruntergeladen...")
