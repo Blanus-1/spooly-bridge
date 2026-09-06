@@ -128,6 +128,8 @@ Das Standard-Passwort ist `snapmaker`. Details dazu beschreibt die [U1-Firmware-
 
 Der U1 setzt das Verzeichnis `/etc` bei jedem Neustart zurück, und genau dort liegt der Autostart der Bridge (`/etc/init.d/S99spoolybridge`). Damit er den Neustart übersteht, muss die Datei `/oem/.debug` existieren. Die Installation erkennt den U1 und legt diese Datei selbst an, du musst dich also um nichts kümmern.
 
+Dazu kommt eine zweite Eigenheit: Das Boot-Skript `rcS` liest die Liste der zu startenden Init-Skripte ein, **bevor** `/etc` in seiner beschreibbaren Fassung eingehängt ist. Ein neu angelegtes Skript steht deshalb nie in dieser Liste und würde nie starten. Die Installation trägt den Bridge-Start darum zusätzlich in ein bereits vorhandenes Init-Skript ein, erkennbar an der Zeile mit `# spooly-bridge-autostart`. `--uninstall` entfernt diesen Eintrag wieder.
+
 Nur falls die Installation die Warnung `/oem/.debug konnte nicht angelegt werden` zeigt (etwa weil sie nicht als `root` läuft), die Datei einmal von Hand anlegen und die Installation danach wiederholen:
 
 ```bash

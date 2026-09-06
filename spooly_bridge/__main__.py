@@ -491,6 +491,82 @@ OEM_VERZEICHNIS = "/oem"
 PAXX_MARKER_PFAD = "/oem/paxx"
 INITD_VERZEICHNIS = "/etc/init.d"
 RCS_PFAD = "/etc/init.d/rcS"
+BOOT_ZUENDER_MARKER = "# spooly-bridge-autostart"
+
+
+def _boot_zuender_ziel(initd_verzeichnis: str = INITD_VERZEICHNIS):
+    """Vorhandenes Init-Script, in das die Startzeile geschrieben wird.
+
+    Der Snapmaker U1 startet rcS mit `for i in /etc/init.d/S??*`. Die Shell
+    expandiert diesen Glob EINMAL, bevor die Schleife laeuft - und damit bevor
+    S01aoverlayfs den Overlay per pivot_root einhaengt. Ein neu angelegtes
+    Script ist zu dem Zeitpunkt unsichtbar und steht nie in der Liste, egal wie
+    es heisst; der Autostart lief dort deshalb nie an (am Geraet belegt,
+    06.09.2026). Ein VORHANDENES Script steht im Glob, und `$i start` loest den
+    Pfad erst beim Aufruf auf - also mit Overlay, also mit unserer Ergaenzung.
+
+    Genommen wird das alphabetisch letzte, damit Klipper und Moonraker vorher
+    hochkommen. rcS und rcK fallen raus, weil sie nicht mit S beginnen.
+    """
+    eigenes = os.path.basename(AUTOSTART_SCRIPT_PFAD)
+    try:
+        namen = sorted(
+            n for n in os.listdir(initd_verzeichnis)
+            if n.startswith("S") and len(n) >= 3 and n != eigenes
+            and os.path.isfile(os.path.join(initd_verzeichnis, n))
+        )
+    except OSError:
+        return None
+    return os.path.join(initd_verzeichnis, namen[-1]) if namen else None
+
+
+def _boot_zuender_setzen(ziel_pfad: str, autostart_pfad: str = AUTOSTART_SCRIPT_PFAD) -> bool:
+    """Startzeile in ein vorhandenes Init-Script schreiben. True bei Aenderung."""
+    try:
+        with open(ziel_pfad, "r") as f:
+            inhalt = f.read()
+    except OSError:
+        return False
+    if BOOT_ZUENDER_MARKER in inhalt:
+        return False
+
+    zeilen = inhalt.split("\n")
+    # Direkt hinter den Shebang: die meisten Init-Scripts enden mit "exit",
+    # ans Dateiende gehaengt wuerde die Zeile nie erreicht.
+    pos = 1 if zeilen and zeilen[0].startswith("#!") else 0
+    zeilen[pos:pos] = [
+        BOOT_ZUENDER_MARKER + ": der U1 expandiert den rcS-Glob vor dem Overlay-Mount,"
+        " ein eigenes Script in /etc/init.d startet dort nie selbst",
+        'if [ "$1" = start ] && [ -x %s ]; then %s start; fi'
+        % (autostart_pfad, autostart_pfad),
+    ]
+    try:
+        with open(ziel_pfad, "w") as f:
+            f.write("\n".join(zeilen))
+    except OSError:
+        return False
+    return True
+
+
+def _boot_zuender_entfernen(ziel_pfad: str, autostart_pfad: str = AUTOSTART_SCRIPT_PFAD) -> bool:
+    """Startzeile wieder herausnehmen. True wenn etwas entfernt wurde."""
+    try:
+        with open(ziel_pfad, "r") as f:
+            inhalt = f.read()
+    except OSError:
+        return False
+    if BOOT_ZUENDER_MARKER not in inhalt:
+        return False
+    zeilen = [
+        z for z in inhalt.split("\n")
+        if BOOT_ZUENDER_MARKER not in z and autostart_pfad not in z
+    ]
+    try:
+        with open(ziel_pfad, "w") as f:
+            f.write("\n".join(zeilen))
+    except OSError:
+        return False
+    return True
 
 
 def _install_metadaten_ermitteln() -> dict:
@@ -666,6 +742,12 @@ def _autostart_selbstheilung(config_pfad: str, log) -> None:
         if os.path.isdir(INITD_VERZEICHNIS) and shutil.which("start-stop-daemon"):
             if _datei_sicherstellen(AUTOSTART_SCRIPT_PFAD, _autostart_script_inhalt(script_pfad)):
                 repariert.append("init.d-Autostart erneuert")
+
+        # 3b) Boot-Zuender: ohne ihn startet das init.d-Script auf dem U1 nie
+        if os.path.isdir(OEM_VERZEICHNIS) and os.path.exists(AUTOSTART_SCRIPT_PFAD):
+            ziel = _boot_zuender_ziel()
+            if ziel and _boot_zuender_setzen(ziel):
+                repariert.append("Boot-Zuender in %s erneuert" % os.path.basename(ziel))
 
         # 4) rcS-Altlasten frueherer Versionen entfernen (blockierten den Boot)
         if os.path.exists(RCS_PFAD):
@@ -958,6 +1040,16 @@ def _install(config, log, config_pfad):
             except (PermissionError, OSError):
                 pass
 
+        if autostart_ok and os.path.isdir(OEM_VERZEICHNIS):
+            # Snapmaker U1: das eigene Script allein reicht nicht, rcS sieht es
+            # beim Boot nicht (Glob vor Overlay-Mount). Startzeile deshalb in
+            # ein vorhandenes Firmware-Script schreiben.
+            ziel = _boot_zuender_ziel()
+            if ziel and _boot_zuender_setzen(ziel):
+                print("  --> Boot-Start ergaenzt (%s)" % ziel)
+            elif not ziel:
+                print("  --> WARNUNG: kein Init-Script fuer den Boot-Start gefunden")
+
         if autostart_ok:
             # Ueber denselben Weg starten wie beim Boot - so fallen
             # Probleme schon bei der Installation auf, nicht erst beim
@@ -1021,6 +1113,11 @@ def _uninstall(log):
     _pkill("start-bridge.sh")
     _pkill("spooly_bridge --config")
     _pkill("spooly_bridge$")
+
+    # Boot-Zuender aus dem Firmware-Script nehmen, bevor das eigene Script geht
+    for name in sorted(os.listdir(INITD_VERZEICHNIS)) if os.path.isdir(INITD_VERZEICHNIS) else []:
+        if _boot_zuender_entfernen(os.path.join(INITD_VERZEICHNIS, name)):
+            log.info("  Boot-Zuender aus %s entfernt", name)
 
     if os.path.exists(AUTOSTART_SCRIPT_PFAD):
         try:
