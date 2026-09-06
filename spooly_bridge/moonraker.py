@@ -169,8 +169,10 @@ class MoonrakerPoller:
             log.info("Thumbnail hat weder data noch relative_path: %s", list(groesstes.keys()))
             return None
 
-        # Datei ueber Moonraker File-API laden
-        url = f"{self.basis_url}/server/files/gcodes/{pfad}"
+        # Datei ueber Moonraker File-API laden. Der Pfad muss kodiert werden:
+        # Dateinamen mit Leerzeichen oder Umlauten liessen urlopen sonst mit
+        # "URL can't contain control characters" scheitern (kein Thumbnail).
+        url = f"{self.basis_url}/server/files/gcodes/{quote(pfad)}"
         try:
             import base64
             anfrage = Request(url, headers={"Accept": "image/png"})
