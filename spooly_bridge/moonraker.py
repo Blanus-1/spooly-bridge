@@ -82,8 +82,44 @@ class MoonrakerPoller:
             return None
 
     def drucker_info(self) -> Optional[dict]:
-        """Druckerinfos abrufen (Name, Firmware, Status)."""
+        """Druckerinfos abrufen (Name, Firmware, Status).
+
+        ACHTUNG: /printer/* reicht Moonraker an Klippy durch und antwortet 503,
+        sobald Klippy nicht verbunden ist. Fuer "laeuft Moonraker ueberhaupt?"
+        ist das der falsche Massstab -> dafuer server_info() nehmen.
+        """
         return self._get("/printer/info")
+
+    def server_info(self) -> Optional[dict]:
+        """Moonrakers eigene Server-Infos (u. a. klippy_connected/klippy_state).
+
+        Beantwortet Moonraker selbst, ohne Klippy. Genau die Ebene, auf der auch
+        alles laeuft, was die Bridge wirklich braucht (/server/history/list,
+        /server/files/metadata).
+        """
+        return self._get("/server/info")
+
+    def erreichbarkeit(self) -> tuple[bool, Optional[str]]:
+        """(Moonraker erreichbar?, Klippy-Zustand).
+
+        Der Erreichbarkeits-Check hing frueher an /printer/info und damit an
+        Klippy: stand Klippy still, meldete die Bridge "Moonraker nicht
+        erreichbar", waehrend sie munter Jobs aus /server/history/list holte und
+        hochlud. In Spooly stand dann ein roter Fehler an einem Drucker, der
+        gerade Daten lieferte.
+
+        Jetzt zaehlt jede Antwort von Moonraker als erreichbar. Der
+        Klippy-Zustand geht getrennt mit, damit Spooly "Moonraker weg" und
+        "Moonraker da, Klipper steht" auseinanderhalten kann. /printer/info
+        bleibt als Rueckfall fuer aeltere Moonraker ohne /server/info.
+        """
+        server = self.server_info()
+        if server is not None:
+            klippy = server.get("klippy_state")
+            if klippy is None and server.get("klippy_connected") is False:
+                klippy = "disconnected"
+            return True, klippy
+        return self.drucker_info() is not None, None
 
     def job_historie(self, limit: int = 50) -> List[dict]:
         """Letzte Jobs aus der Moonraker-Historie."""

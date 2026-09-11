@@ -344,17 +344,21 @@ def _sende_heartbeat(poller, uploader, log):
     Falls ja, wird der lokale Cache geleert und alle Jobs nochmal gesendet.
     """
     drucker_info = poller.drucker_info()
+    erreichbar, klippy_zustand = poller.erreichbarkeit()
 
     # Heartbeat auch ohne Moonraker-Antwort senden - Spooly soll wissen
     # dass die Bridge laeuft, auch wenn Moonraker noch hochfaehrt. Ob und wo
     # Moonraker erreicht wurde geht mit, damit Spooly eine Bridge ohne
     # Drucker-Kontakt (falsche URL, falscher Rechner) auch so anzeigen kann.
+    # Erreichbarkeit kommt aus /server/info, NICHT aus drucker_info: letzteres
+    # haengt an Klippy und war rot, waehrend die Bridge Jobs hochlud.
     ergebnis = uploader.heartbeat(
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
         firmware=drucker_info.get("software_version") if drucker_info else None,
         install_metadaten=_install_metadaten_ermitteln(),
         moonraker_url=poller.basis_url,
-        moonraker_erreichbar=drucker_info is not None,
+        moonraker_erreichbar=erreichbar,
+        klippy_zustand=klippy_zustand,
     )
 
     if ergebnis and ergebnis.get("force_reimport"):
@@ -940,12 +944,14 @@ def _install(config, log, config_pfad):
     print("[2/4] Spooly-Verbindung testen...")
     uploader = SpoolyUploader(config.spooly_url, config.api_key)
     spooly_ok = False
+    installer_erreichbar, installer_klippy = poller.erreichbarkeit()
     heartbeat = uploader.heartbeat(
         drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
         firmware=drucker_info.get("software_version") if drucker_info else None,
         install_metadaten=_install_metadaten_ermitteln(),
         moonraker_url=poller.basis_url,
-        moonraker_erreichbar=drucker_info is not None,
+        moonraker_erreichbar=installer_erreichbar,
+        klippy_zustand=installer_klippy,
     )
     if heartbeat and heartbeat.get("success"):
         spooly_ok = True
