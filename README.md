@@ -130,6 +130,8 @@ Der U1 setzt das Verzeichnis `/etc` bei jedem Neustart zurück, und genau dort l
 
 Dazu kommt eine zweite Eigenheit: Das Boot-Skript `rcS` liest die Liste der zu startenden Init-Skripte ein, **bevor** `/etc` in seiner beschreibbaren Fassung eingehängt ist. Ein neu angelegtes Skript steht deshalb nie in dieser Liste und würde nie starten. Die Installation trägt den Bridge-Start darum zusätzlich in ein bereits vorhandenes Init-Skript ein, erkennbar an der Zeile mit `# spooly-bridge-autostart`. `--uninstall` entfernt diesen Eintrag wieder.
 
+Die dritte betrifft das WLAN: Existiert `/oem/.debug` beim Start, liest die Oberfläche des U1 die WLAN-Zugangsdaten aus `/etc/wpa_supplicant.conf` statt aus ihrer eigenen Datei unter `printer_data/gui/`. Die Bridge hält beide Dateien gleich, sonst stünde der Drucker nach dem ersten Neustart ohne WLAN da. Wer mit einer Bridge vor Version 1.5.4 installiert hat, musste das WLAN nach dem ersten Neustart einmal neu eingeben; danach bleibt es erhalten.
+
 Nur falls die Installation die Warnung `/oem/.debug konnte nicht angelegt werden` zeigt (etwa weil sie nicht als `root` läuft), die Datei einmal von Hand anlegen und die Installation danach wiederholen:
 
 ```bash

@@ -626,6 +626,102 @@ def _u1_persistenz_aktivieren(oem_debug_pfad: str = OEM_DEBUG_PFAD) -> bool:
         return False
 
 
+# Die Snapmaker-Oberflaeche speichert das WLAN in ihrer eigenen Datei. Liegt
+# /oem/.debug beim Boot vor, startet sie das WLAN aber mit /etc/wpa_supplicant.conf
+# (rk_wifi_handler, in Firmware 1.5.1 und 2.0.0 nachgelesen). Dort steht nach dem
+# ersten Neustart mit Persistenz nur die Werks-Vorlage ohne Netz: der Drucker hat
+# das WLAN "vergessen".
+WLAN_GUI_PFAD = "/home/lava/printer_data/gui/wpa_supplicant.conf"
+WLAN_ETC_PFAD = "/etc/wpa_supplicant.conf"
+
+
+def _wlan_aktive_config(proc_verzeichnis: str = "/proc"):
+    """Config, mit der wpa_supplicant gerade laeuft (Argument -c), sonst None."""
+    pfade = set()
+    try:
+        pids = [p for p in os.listdir(proc_verzeichnis) if p.isdigit()]
+    except OSError:
+        return None
+    for pid in pids:
+        try:
+            with open(os.path.join(proc_verzeichnis, pid, "cmdline"), "rb") as f:
+                argv = f.read().split(b"\0")
+        except OSError:
+            continue
+        if not os.path.basename(argv[0]).startswith(b"wpa_supplicant"):
+            continue
+        for i, arg in enumerate(argv[:-1]):
+            if arg == b"-c":
+                pfade.add(os.path.realpath(argv[i + 1].decode(errors="replace")))
+    # Mehrere Instanzen mit verschiedenen Configs: unklar, lieber nichts tun
+    return pfade.pop() if len(pfade) == 1 else None
+
+
+def _wlan_config_spiegeln(aktiv, pfade=(WLAN_GUI_PFAD, WLAN_ETC_PFAD)) -> bool:
+    """Die gerade benutzte WLAN-Config in die andere kopieren. True bei Aenderung.
+
+    Welche der beiden Dateien die Oberflaeche liest, haengt davon ab, ob
+    /oem/.debug beim Boot existierte - und das wechselt: die Installation legt
+    die Datei an, ein Firmware-Update loescht sie. Sind beide gleich, bleibt das
+    WLAN in jedem Fall erhalten. Die aktive Datei selbst wird nie angefasst.
+    """
+    echte = [os.path.realpath(p) for p in pfade]
+    if aktiv not in echte:
+        return False
+    ziel = echte[1 - echte.index(aktiv)]
+    try:
+        # Binaer: SSIDs und Passwoerter muessen kein gueltiges UTF-8 sein
+        with open(aktiv, "rb") as f:
+            inhalt = f.read()
+        with open(ziel, "rb") as f:
+            if f.read() == inhalt:
+                return False
+        st = os.stat(ziel)
+    except OSError:
+        # Ziel fehlt: die Oberflaeche legt ihre Datei beim WLAN-Start selbst an
+        return False
+    # Nie eine Config ohne Netz ueber eine mit Netz schreiben. Das schuetzt auch
+    # den Boot-Moment, in dem noch die ifup-Instanz mit der leeren Vorlage laeuft.
+    # Zeilenweise, damit ein auskommentiertes Beispiel nicht als Netz zaehlt.
+    if not any(z.lstrip().startswith(b"network={") for z in inhalt.splitlines()):
+        return False
+    tmp = ziel + ".spooly-tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(inhalt)
+            f.flush()
+            os.fsync(f.fileno())
+        # Besitzer erhalten: die Oberflaeche laeuft als lava und muss weiter speichern koennen
+        os.chown(tmp, st.st_uid, st.st_gid)
+        os.chmod(tmp, st.st_mode & 0o7777)
+        os.replace(tmp, ziel)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+    # Umbenennung auf die Platte bringen: der U1 wird gern hart ausgeschaltet
+    try:
+        fd = os.open(os.path.dirname(ziel), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+    return True
+
+
+def _wlan_abgleichen(log) -> bool:
+    """WLAN-Abgleich fuer Installation und Selbstheilung - darf die Bridge nie stoppen."""
+    try:
+        return _wlan_config_spiegeln(_wlan_aktive_config())
+    except Exception as fehler:
+        log.debug("WLAN-Abgleich uebersprungen: %s", fehler)
+        return False
+
+
 def _ist_systemd_system() -> bool:
     return os.path.exists("/usr/bin/systemctl") or os.path.exists("/bin/systemctl")
 
@@ -735,6 +831,11 @@ def _autostart_selbstheilung(config_pfad: str, log) -> None:
                     "Selbstheilung: /oem/.debug fehlt und laesst sich nicht anlegen - "
                     "der Autostart ueberlebt den naechsten Neustart nicht"
                 )
+
+        # 1b) U1-WLAN: /oem/.debug schaltet die Oberflaeche auf eine andere
+        #     WLAN-Datei um - beide gleich halten, sonst ist das WLAN weg
+        if os.path.isdir(OEM_VERZEICHNIS) and _wlan_abgleichen(log):
+            repariert.append("WLAN-Zugangsdaten abgeglichen")
 
         # 2) Watchdog-Script aktuell halten (alte Fassungen ohne HOME-Export
         #    scheiterten beim Boot)
@@ -1008,6 +1109,10 @@ def _install(config, log, config_pfad):
         if os.path.isdir("/oem"):
             if _u1_persistenz_aktivieren():
                 print("  --> Snapmaker U1 erkannt: Persistenz aktiviert (/oem/.debug)")
+                # Mit /oem/.debug liest die Oberflaeche das WLAN ab dem naechsten
+                # Start aus /etc - dort muss es vor dem Neustart schon stehen
+                if _wlan_abgleichen(log):
+                    print("  --> WLAN-Zugangsdaten fuer den Neustart gesichert")
             else:
                 print("  --> WARNUNG: Snapmaker U1 erkannt, aber /oem/.debug konnte")
                 print("      nicht angelegt werden. Ohne diese Datei ist der Autostart")
