@@ -28,6 +28,9 @@ class SpoolyUploader:
     def __init__(self, spooly_url: str, api_key: str):
         self.basis_url = spooly_url.rstrip("/")
         self.api_key = api_key
+        # HTTP-Status der letzten Anfrage (None = keine Antwort), fuer den
+        # Adresswechsel bei 401 im Heartbeat
+        self.letzter_status = None
 
         # HTTPS erzwingen fuer Produktiv-URLs (API-Key wird im Body gesendet!)
         if "spooly.eu" in self.basis_url and not self.basis_url.startswith("https://"):
@@ -57,11 +60,14 @@ class SpoolyUploader:
             method="POST",
         )
 
+        self.letzter_status = None
         try:
             with urlopen(anfrage, timeout=TIMEOUT) as antwort:
+                self.letzter_status = antwort.status
                 return json.loads(antwort.read())
         except HTTPError as fehler:
             status = fehler.code
+            self.letzter_status = status
             if status == 401:
                 log.error("API-Key ungueltig oder abgelaufen! Bitte in Spooly neu generieren.")
             elif status == 429:

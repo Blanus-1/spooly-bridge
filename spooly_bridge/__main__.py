@@ -135,7 +135,7 @@ def main():
     log.info("  API-Key:    %s...%s", config.api_key[:12], config.api_key[-4:])
 
     # Sofort Heartbeat senden damit Spooly weiss dass die Bridge laeuft
-    _sende_heartbeat(poller, uploader, log)
+    _sende_heartbeat(poller, uploader, log, config_pfad)
 
     # Thumbnail-Verfuegbarkeit pruefen (lokal, einmalig beim Start)
     _pruefe_thumbnails(poller, log)
@@ -244,7 +244,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn, config_pfa
 
         # Periodischer Heartbeat (alle 5 Min, prueft auch force_reimport)
         if jetzt - letzter_heartbeat >= heartbeat_intervall:
-            if _sende_heartbeat(poller, uploader, log):
+            if _sende_heartbeat(poller, uploader, log, config_pfad):
                 letzter_heartbeat = jetzt
 
             # Update-Check zusammen mit dem Heartbeat
@@ -273,7 +273,7 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn, config_pfad=
     """Klassischer Polling-Modus als Fallback wenn WebSocket nicht verfuegbar."""
 
     while laeuft_fn():
-        _sende_heartbeat(poller, uploader, log)
+        _sende_heartbeat(poller, uploader, log, config_pfad)
         _sync_neue_jobs(poller, uploader, log)
 
         # Update-Check bei jedem Zyklus (ein kleiner GET auf GitHub Releases)
@@ -337,11 +337,51 @@ def _pruefe_thumbnails(poller, log):
         break  # Ein Test reicht
 
 
-def _sende_heartbeat(poller, uploader, log):
+# Spooly laeuft unter zwei Adressen (Produktiv und Test). Zieht ein Konto von
+# der einen zur anderen um, kennt nur noch die neue den Key - die Bridge findet
+# sie selbst, statt neu installiert werden zu muessen.
+SPOOLY_ADRESSEN = ("https://spooly.eu/api", "https://dev.spooly.eu/api")
+
+
+def _andere_spooly_adresse(url: str):
+    """Die jeweils andere bekannte Spooly-Adresse, None fuer eigene URLs."""
+    url = url.rstrip("/")
+    if url not in SPOOLY_ADRESSEN:
+        return None
+    return SPOOLY_ADRESSEN[1 - SPOOLY_ADRESSEN.index(url)]
+
+
+def _spooly_umzug(uploader, senden, config_pfad, log):
+    """Key abgelehnt: bei der anderen Spooly-Adresse nachfragen und bei Erfolg dort bleiben.
+
+    Gewechselt wird nur, wenn der Heartbeat dort klappt - ein Key, der nirgends
+    gilt, laesst die Bridge also bei ihrer Adresse. Die neue Adresse landet in
+    der Config, damit sie auch nach einem Neustart gilt.
+    """
+    andere = _andere_spooly_adresse(uploader.basis_url)
+    if not andere:
+        return None
+    bisher = uploader.basis_url
+    uploader.basis_url = andere
+    ergebnis = senden()
+    if ergebnis is None:
+        uploader.basis_url = bisher
+        return None
+    log.info("Spooly-Konto ist umgezogen: die Bridge meldet sich ab jetzt bei %s", andere)
+    if config_pfad:
+        config = lade_config(config_pfad)
+        config.spooly_url = andere
+        speichere_config(config, config_pfad)
+    return ergebnis
+
+
+def _sende_heartbeat(poller, uploader, log, config_pfad=None):
     """Heartbeat an Spooly senden. Gibt True zurueck wenn erfolgreich.
 
     Prueft auch ob Spooly einen Re-Import anfordert (force_reimport).
     Falls ja, wird der lokale Cache geleert und alle Jobs nochmal gesendet.
+    Lehnt Spooly den Key ab, sieht die Bridge bei der anderen Adresse nach
+    (Konto von Test nach Produktiv umgezogen oder umgekehrt).
     """
     drucker_info = poller.drucker_info()
     erreichbar, klippy_zustand = poller.erreichbarkeit()
@@ -352,14 +392,19 @@ def _sende_heartbeat(poller, uploader, log):
     # Drucker-Kontakt (falsche URL, falscher Rechner) auch so anzeigen kann.
     # Erreichbarkeit kommt aus /server/info, NICHT aus drucker_info: letzteres
     # haengt an Klippy und war rot, waehrend die Bridge Jobs hochlud.
-    ergebnis = uploader.heartbeat(
-        drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
-        firmware=drucker_info.get("software_version") if drucker_info else None,
-        install_metadaten=_install_metadaten_ermitteln(),
-        moonraker_url=poller.basis_url,
-        moonraker_erreichbar=erreichbar,
-        klippy_zustand=klippy_zustand,
-    )
+    def senden():
+        return uploader.heartbeat(
+            drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
+            firmware=drucker_info.get("software_version") if drucker_info else None,
+            install_metadaten=_install_metadaten_ermitteln(),
+            moonraker_url=poller.basis_url,
+            moonraker_erreichbar=erreichbar,
+            klippy_zustand=klippy_zustand,
+        )
+
+    ergebnis = senden()
+    if ergebnis is None and uploader.letzter_status == 401:
+        ergebnis = _spooly_umzug(uploader, senden, config_pfad, log)
 
     if ergebnis and ergebnis.get("force_reimport"):
         log.info("Re-Import von Spooly angefordert - lokalen Cache geleert")
