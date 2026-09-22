@@ -22,7 +22,7 @@ class BridgeConfig:
     """Konfiguration der Bridge."""
     api_key: Optional[str] = None
     moonraker_url: str = "http://localhost:7125"
-    spooly_url: str = "https://api.spooly.eu/api"
+    spooly_url: str = "https://spooly.eu/api"
     intervall: int = 60  # Sekunden zwischen Sync-Zyklen
 
 
@@ -34,7 +34,7 @@ def lade_config(pfad: str) -> BridgeConfig:
         return BridgeConfig(
             api_key=daten.get("api_key"),
             moonraker_url=daten.get("moonraker_url", "http://localhost:7125"),
-            spooly_url=daten.get("spooly_url", "https://api.spooly.eu/api"),
+            spooly_url=daten.get("spooly_url", "https://spooly.eu/api"),
             intervall=daten.get("intervall", 60),
         )
     except FileNotFoundError:

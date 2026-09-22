@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir .
 # Beispiel: docker run -e SPOOLY_KEY=spooly_br_xxx spooly-bridge
 ENV SPOOLY_KEY=""
 ENV MOONRAKER_URL="http://host.docker.internal:7125"
-ENV SPOOLY_URL="https://api.spooly.eu/api"
+ENV SPOOLY_URL="https://spooly.eu/api"
 ENV POLL_INTERVALL="60"
 
 CMD ["sh", "-c", "spooly-bridge --key ${SPOOLY_KEY} --moonraker-url ${MOONRAKER_URL} --spooly-url ${SPOOLY_URL} --intervall ${POLL_INTERVALL}"]

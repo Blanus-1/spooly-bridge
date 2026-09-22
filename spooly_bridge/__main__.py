@@ -48,7 +48,7 @@ def main():
     )
     parser.add_argument("--key", "-k", help="Spooly Bridge API-Key")
     parser.add_argument("--moonraker-url", "-m", default=MOONRAKER_DEFAULT_URL, help="Moonraker URL")
-    parser.add_argument("--spooly-url", "-s", default="https://api.spooly.eu/api", help="Spooly API URL")
+    parser.add_argument("--spooly-url", "-s", default="https://spooly.eu/api", help="Spooly API URL")
     parser.add_argument("--intervall", "-i", type=int, default=300, help="Polling-Intervall in Sekunden (Standard: 300)")
     parser.add_argument("--config", "-c", type=str, default=None, help="Pfad zur Konfigurationsdatei")
     parser.add_argument("--version", "-v", action="version", version=f"spooly-bridge {__version__}")
@@ -96,7 +96,7 @@ def main():
         config.api_key = args.key
     if args.moonraker_url != MOONRAKER_DEFAULT_URL:
         config.moonraker_url = args.moonraker_url
-    if args.spooly_url != "https://api.spooly.eu/api":
+    if args.spooly_url != "https://spooly.eu/api":
         config.spooly_url = args.spooly_url
     if args.intervall != 300:
         config.intervall = args.intervall
