@@ -1,253 +1,83 @@
 # Spooly Bridge
 
-> **Early Beta:** Dieses Projekt befindet sich in aktiver Entwicklung. Feedback und Fehlerberichte sind willkommen!
+Verbindet deinen Klipper-Drucker mit [Spooly](https://spooly.eu). Die Bridge läuft auf dem Drucker neben Moonraker und schickt jeden fertigen Druck automatisch an dein Spooly-Konto. Du brauchst dafür weder Port-Forwarding noch einen Tunnel.
 
-Verbindet deinen **Klipper/Moonraker** 3D-Drucker automatisch mit Spooly.
+> Die Klipper-Anbindung ist noch in der Beta. Feedback und Fehlerberichte gerne als Issue.
 
-Die Bridge läuft als kleines Script neben deiner Moonraker-Instanz und sendet abgeschlossene Druckjobs automatisch an dein Spooly-Konto, ganz ohne Port-Forwarding, Cloudflare Tunnel oder Aufwand.
+## Installation
 
-## Funktionen
+Die Einrichtung startest du in Spooly: **Einstellungen → Drucker-Verbindungen → Klipper / Moonraker → Bridge einrichten**. Dort steht der fertige Befehl, dein Key ist schon eingesetzt.
 
-- **Echtzeit-Import:** Jobs werden sofort erkannt wenn ein Druck endet (WebSocket)
-- Fallback auf 5-Minuten-Polling wenn WebSocket nicht verfügbar
-- G-Code Metadaten (Filament-Typ, Gewicht, Thumbnail)
-- Spoolman-Integration (wenn installiert)
-- Automatische Updates (steuerbar in Spooly)
-- Keine externen Abhängigkeiten (nur Python-Standardbibliothek)
-- Läuft auf Raspberry Pi, Snapmaker U1 und anderen Klipper-Hosts, auch in Docker
+### Snapmaker U1: vom Computer aus
 
-## Voraussetzungen
+1. Am Drucker den Root-Zugriff einschalten: **Wartung → Root-Zugriff** (englisch: Maintenance → Root Access).
+2. In Spooly bei Schritt 2 „Vom Computer“ den Befehl kopieren und ausführen, am Mac oder unter Linux im Terminal, unter Windows in der PowerShell.
+3. Fragt er nach dem Passwort, `snapmaker` eingeben. Beim Tippen erscheinen keine Zeichen, das ist normal.
+4. Danach den Root-Zugriff am Drucker wieder ausschalten. Die Bridge braucht ihn nicht.
 
-- **Python 3.8+** auf dem Drucker (bei Raspberry Pi und Snapmaker ab Werk vorhanden)
-- **SSH-Zugang** zum Drucker (beim Snapmaker U1 muss SSH erst am Display aktiviert werden, siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz))
-
-Mehr nicht. Kein Git, kein Kopieren vom PC, die Bridge lädt sich selbst herunter.
-
-**Wichtig:** Der Installations-Befehl gehört in die SSH-Sitzung auf dem Drucker, nicht ins Terminal deines Macs oder PCs. Führst du ihn trotzdem auf einem Mac aus, sagt dir die Bridge das und bricht ab. Wer sie bewusst auf dem Mac betreiben will, gibt die Adresse des Druckers mit (`--moonraker-url http://DRUCKER_IP:7125`); sie läuft dann ohne Autostart und nur, solange der Mac wach ist. Windows wird nicht unterstützt.
-
-## Installation (Schritt für Schritt)
-
-### Schritt 1: API-Key in Spooly generieren
-
-1. Öffne die Spooly Einstellungen unter **dev.spooly.eu** (Beta-Testumgebung)
-2. Scrolle zu **Klipper / Moonraker**
-3. Klappe **"Spooly Bridge"** auf
-4. Klicke **"API-Key generieren"**
-5. Kopiere den Key (sieht aus wie `spooly_br_xxxxxxxxxxxx`)
-
-### Schritt 2: Per SSH auf den Drucker und installieren
+Der Befehl sucht den U1 in deinem Netzwerk, verbindet sich per SSH und installiert die Bridge auf dem Drucker. Auf dem Computer bleibt nichts zurück. So sieht er aus:
 
 ```bash
-ssh BENUTZER@DRUCKER_IP
+# Mac / Linux
+curl -fsSL "https://spooly.eu/b?c=sh" | sh -s -- spooly_br_DEIN_KEY
 ```
 
-Ersetze:
-- `BENUTZER` mit dem SSH-Benutzernamen (meistens `pi` oder `root`)
-- `DRUCKER_IP` mit der IP-Adresse deines Druckers
+```powershell
+# Windows
+$env:SPOOLY_KEY='spooly_br_DEIN_KEY'; irm 'https://spooly.eu/b?c=ps1' | iex
+```
 
-Dann die Bridge herunterladen und einrichten. Der Snapmaker U1 (und andere Drucker mit busybox) haben kein `curl`, und ihr `wget` kann kein HTTPS — darum den Installer mit `python3` laden (das auf jedem Klipper-System ohnehin vorhanden ist):
+Wer vorher reinschauen will, öffnet die beiden Adressen einfach im Browser.
+
+### Andere Klipper-Drucker (Raspberry Pi & Co.)
+
+Per SSH auf den Drucker, in Spooly bei Schritt 2 „Auf dem Drucker“ wählen und den Befehl dort ausführen. Auf dem Raspberry Pi vorher `sudo -i`, weil der Autostart als systemd-Dienst eingerichtet wird.
 
 ```bash
-python3 -c "import urllib.request; open('/tmp/install.py','wb').write(urllib.request.urlopen('https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py').read())"
-python3 /tmp/install.py --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
+python3 -c "import urllib.request; open('/tmp/spooly-install.py','wb').write(urllib.request.urlopen('https://spooly.eu/b').read())"
+python3 /tmp/spooly-install.py --key spooly_br_DEIN_KEY
 ```
 
-Falls dein System `curl` oder ein HTTPS-fähiges `wget` hat, geht es auch in einer Zeile:
+Voraussetzung ist Python 3.8 oder neuer, bei Klipper-Systemen ist das ab Werk dabei. Weitere Pakete braucht die Bridge nicht.
+
+## Was danach passiert
+
+- **Autostart:** Die Bridge startet nach jedem Neustart des Druckers von selbst.
+- **Updates:** Neue Versionen installiert sie selbst, sie kommen direkt aus diesem Repository.
+- **Umzug:** Wechselt dein Konto zwischen dev.spooly.eu und spooly.eu, findet die Bridge das neue Ziel ohne Neuinstallation.
+- **Status:** In Spooly siehst du unter Schritt 3, ob die Bridge online ist, welche Version läuft und wo sie installiert ist.
+
+## Snapmaker U1: was am Drucker geändert wird
+
+- Die Installation legt `/oem/.debug` an. Ohne diese Datei verwirft der U1 bei jedem Neustart alle Änderungen an `/etc` und damit auch den Autostart ([Hintergrund](https://snapmakeru1-extended-firmware.pages.dev/data_persistence)).
+- Der Start steht zusätzlich in einem vorhandenen Init-Skript, erkennbar an der Zeile mit `# spooly-bridge-autostart`. Ein neu angelegtes Skript würde der U1 beim Booten nie aufrufen.
+- Mit `/oem/.debug` liest der U1 das WLAN aus `/etc/wpa_supplicant.conf` statt aus seiner eigenen Datei. Die Bridge hält beide gleich, damit das WLAN nach einem Neustart bleibt. Wer vor Version 1.5.4 installiert hat, musste es nach dem ersten Neustart einmal neu eingeben.
+- Ein Firmware-Update macht das alles rückgängig. Danach den Befehl einfach noch einmal ausführen, der Key bleibt gültig.
+
+## Wenn etwas nicht klappt
+
+- **Bridge nach einem Neustart offline:** Befehl noch einmal ausführen, das repariert den Autostart.
+- **SSH verweigert die Verbindung:** Ist der Root-Zugriff am Drucker an? Stimmt das Passwort?
+- **Drucker wird nicht gefunden:** Computer und Drucker müssen im selben Netzwerk sein. Sonst fragt der Befehl nach der IP-Adresse, die steht in den WLAN-Einstellungen am Drucker oder im Router.
+- **Log ansehen:** `bridge.log` im Installationsordner, auf dem U1 `/userdata/spooly_bridge/bridge.log`.
+
+## Entfernen
+
+Per SSH auf den Drucker und im Installationsordner (Spooly zeigt ihn unter Schritt 3):
 
 ```bash
-wget -q -O- https://raw.githubusercontent.com/Blanus-1/spooly-bridge/main/install.py | python3 - --key DEIN_API_KEY --spooly-url https://dev.spooly.eu/api
-```
-
-> **Wichtig:** Der Parameter `--spooly-url https://dev.spooly.eu/api` ist während der Beta-Phase nötig. Sobald die Integration offiziell veröffentlicht wird, entfällt dieser Parameter.
-
-### Was du nach der Installation sehen solltest
-
-```
-==================================================
-  Spooly Bridge v1.4.0 - Installation
-==================================================
-
-[1/4] Moonraker pruefen...
-  --> Moonraker gefunden: voron24 (Klipper v0.12.0)
-
-[2/4] Spooly-Verbindung testen...
-  --> Spooly verbunden! API-Key gueltig.
-
-[3/4] Autostart einrichten...
-  --> Systemd-Service eingerichtet (startet automatisch)
-
-[4/4] Erster Sync...
-  --> 12 Druckjob(s) gefunden!
-
-==================================================
-  Installation abgeschlossen!
-==================================================
-
-  Moonraker:   verbunden (voron24)
-  Spooly:      verbunden
-  Autostart:   eingerichtet
-  Druckjobs:   12 gefunden
-
-  Logs:        tail -f /home/pi/bridge.log
-  Entfernen:   python3 -m spooly_bridge --uninstall
-```
-
-Wenn alle vier Schritte mit `-->` angezeigt werden, ist die Bridge fertig eingerichtet.
-
-### Alternative: Docker
-
-```bash
-docker run -d \
-  --name spooly-bridge \
-  --restart unless-stopped \
-  --network host \
-  -e SPOOLY_KEY=DEIN_API_KEY \
-  -e SPOOLY_URL=https://dev.spooly.eu/api \
-  blanus1/spooly-bridge
-```
-
-## Snapmaker U1: SSH und Persistenz
-
-Der U1 ist ein Sonderfall: SSH ist ab Werk aus, und das System verwirft Änderungen beim Neustart, solange die Persistenz nicht aktiviert ist. Beides ist schnell erledigt.
-
-### SSH aktivieren
-
-1. Am Drucker-Display: **Settings > Maintenance > Root Access**
-2. Die Bedingungen bis zum Ende lesen und akzeptieren, dann **Open** wählen
-3. Vom PC aus verbinden:
-
-```bash
-ssh root@DRUCKER_IP
-```
-
-Das Standard-Passwort ist `snapmaker`. Details dazu beschreibt die [U1-Firmware-Doku](https://snapmakeru1-extended-firmware.pages.dev/ssh_access).
-
-**Sicherheit:** SSH gibt vollen Zugriff auf den Drucker. Nur im eigenen, vertrauenswürdigen Netzwerk aktivieren, das Standard-Passwort nach dem ersten Login ändern (`passwd`) und Root Access wieder schließen, wenn du ihn nicht brauchst. Achtung: Ein geändertes Passwort überlebt den Neustart nur, wenn die Persistenz (nächster Abschnitt) aktiv ist.
-
-### Persistenz (erledigt die Installation automatisch)
-
-Der U1 setzt das Verzeichnis `/etc` bei jedem Neustart zurück, und genau dort liegt der Autostart der Bridge (`/etc/init.d/S99spoolybridge`). Damit er den Neustart übersteht, muss die Datei `/oem/.debug` existieren. Die Installation erkennt den U1 und legt diese Datei selbst an, du musst dich also um nichts kümmern.
-
-Dazu kommt eine zweite Eigenheit: Das Boot-Skript `rcS` liest die Liste der zu startenden Init-Skripte ein, **bevor** `/etc` in seiner beschreibbaren Fassung eingehängt ist. Ein neu angelegtes Skript steht deshalb nie in dieser Liste und würde nie starten. Die Installation trägt den Bridge-Start darum zusätzlich in ein bereits vorhandenes Init-Skript ein, erkennbar an der Zeile mit `# spooly-bridge-autostart`. `--uninstall` entfernt diesen Eintrag wieder.
-
-Die dritte betrifft das WLAN: Existiert `/oem/.debug` beim Start, liest die Oberfläche des U1 die WLAN-Zugangsdaten aus `/etc/wpa_supplicant.conf` statt aus ihrer eigenen Datei unter `printer_data/gui/`. Die Bridge hält beide Dateien gleich, sonst stünde der Drucker nach dem ersten Neustart ohne WLAN da. Wer mit einer Bridge vor Version 1.5.4 installiert hat, musste das WLAN nach dem ersten Neustart einmal neu eingeben; danach bleibt es erhalten.
-
-Nur falls die Installation die Warnung `/oem/.debug konnte nicht angelegt werden` zeigt (etwa weil sie nicht als `root` läuft), die Datei einmal von Hand anlegen und die Installation danach wiederholen:
-
-```bash
-touch /oem/.debug
-```
-
-Hintergrund in der [Persistenz-Doku](https://snapmakeru1-extended-firmware.pages.dev/data_persistence).
-
-### Nach jedem Firmware-Update neu installieren
-
-Firmware-Updates des U1 entfernen alle persistierten Änderungen und löschen auch `/oem/.debug`. Nach einem Update deshalb einfach den Installationsbefehl aus Schritt 2 erneut ausführen, die Installation legt `/oem/.debug` dabei automatisch wieder an. Dein API-Key aus Spooly bleibt gültig und kann wiederverwendet werden.
-
-## Fehlerbehebung
-
-### "Moonraker nicht erreichbar"
-
-- Prüfe ob Moonraker läuft: `curl http://localhost:7125/printer/info`
-- Falls anderer Port: `--moonraker-url http://localhost:ANDERER_PORT`
-- Falls anderer Rechner: `--moonraker-url http://DRUCKER_IP:7125`
-
-### "Spooly nicht erreichbar oder API-Key ungültig"
-
-- Prüfe deine Internetverbindung: `ping spooly.eu`
-- Generiere einen neuen API-Key in Spooly (Einstellungen, Klipper, Bridge)
-- Prüfe ob der Key richtig kopiert wurde (beginnt mit `spooly_br_`)
-
-### "Download fehlgeschlagen" bei der Installation
-
-- Prüfe ob der Drucker Internet hat: `ping github.com`
-- Bei Firmen-Netzwerken: Firewall/Proxy kann raw.githubusercontent.com blockieren
-
-### Bridge läuft nach Drucker-Neustart nicht mehr
-
-- Installation einfach nochmal ausführen (Befehl aus Schritt 2), das repariert auch den Autostart
-- Auf dem Snapmaker U1 prüfen: `ls /etc/init.d/S99spoolybridge` muss existieren
-- Snapmaker U1: prüfen ob `/oem/.debug` existiert (`ls /oem/.debug`). Fehlt die Datei, verwirft der Drucker den Autostart bei jedem Neustart, siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz). Nach einem Firmware-Update ist sie immer weg.
-
-### "Permission denied" beim SSH
-
-- Prüfe Benutzername und Passwort
-- Bei Raspberry Pi: Standard ist `pi` / `raspberry`
-- Bei Snapmaker U1: Standard ist `root` / `snapmaker`, SSH muss vorher am Display aktiviert werden (siehe [Snapmaker U1: SSH und Persistenz](#snapmaker-u1-ssh-und-persistenz))
-
-### Bridge läuft aber keine Jobs in Spooly
-
-- Prüfe die Logs: `tail -20 ~/bridge.log`
-- Starte die Bridge manuell mit Debug-Modus:
-  ```bash
-  python3 -m spooly_bridge --key DEIN_KEY --debug
-  ```
-
-## Parameter
-
-| Parameter | Standard | Beschreibung |
-|-----------|----------|-------------|
-| `--key` / `-k` | (keiner) | Spooly API-Key (Pflicht) |
-| `--moonraker-url` / `-m` | `http://localhost:7125` | Moonraker URL |
-| `--spooly-url` / `-s` | `https://api.spooly.eu/api` | Spooly API |
-| `--intervall` / `-i` | `300` | Polling-Intervall in Sekunden (Fallback) |
-| `--install` | (keiner) | Installieren mit Verbindungstest + Autostart |
-| `--uninstall` | (keiner) | Komplett deinstallieren |
-| `--debug` | (keiner) | Ausführliche Logausgabe |
-
-## Deinstallation
-
-```bash
-ssh BENUTZER@DRUCKER_IP
+cd /userdata/spooly_bridge
 python3 -m spooly_bridge --uninstall
 ```
 
-Entfernt alles: Service, Konfiguration, Logs, Autostart-Einträge.
+Das entfernt Autostart, Konfiguration und Log.
 
-## Unterstützte Drucker
+## Sicherheit und Daten
 
-| Drucker | Klipper | Moonraker | Getestet |
-|---------|---------|-----------|----------|
-| Snapmaker U1 | Ab Werk | Ab Werk | Ja |
-| Voron (alle) | Selbst installiert | Selbst installiert | (offen) |
-| Ender 3 + Klipper | Selbst geflasht | Selbst installiert | (offen) |
-| Prusa MK3 + Klipper | Selbst geflasht | Selbst installiert | (offen) |
-| QIDI (X-Plus 3, etc.) | Ab Werk | Ab Werk | (offen) |
-
-## Wie es funktioniert
-
-```
-Moonraker (localhost:7125)          Spooly Cloud (spooly.eu)
-    |                                       |
-    v                                       |
-Spooly Bridge                               |
-    |                                       |
-    +-- WebSocket: Job-Events ---------->   |
-    |   (sofortige Erkennung)               |
-    |                                       |
-    +-- Alle 4 Min: Heartbeat ---------->   |
-    |   (Lebenszeichen + Diagnose)          |
-    |                                       |
-    +-- POST /klipper/push/jobs -------->   |
-        (nur wenn neuer Job fertig)         |
-```
-
-## Sicherheit
-
-- **Keine eingehenden Ports:** Die Bridge öffnet keine Ports. Alle Verbindungen gehen nur nach außen.
-- **Nur lesende Zugriffe:** Moonraker wird nur gelesen, nie beschrieben oder gesteuert.
-- **HTTPS erzwungen:** Der API-Key wird immer verschlüsselt über HTTPS gesendet.
-- **API-Key sicher gespeichert:** Lokal in `~/.spooly-bridge.json` mit Berechtigungen `600`.
-- **Keine externen Abhängigkeiten:** Nur Python-Standardbibliothek.
-- **Open Source:** Der komplette Quellcode ist öffentlich einsehbar.
-- **Keine Telemetrie:** Diagnosedaten werden nur mit ausdrücklicher Einwilligung gesendet.
-
-## Einstellungen in Spooly
-
-In den Spooly-Einstellungen unter Klipper/Moonraker, Bereich Bridge:
-
-- **Automatische Updates:** Bridge aktualisiert sich selbst (Standard: an)
-- **Diagnosedaten:** Verbindungsinfos zur Fehleranalyse senden (Standard: aus)
+- Die Bridge öffnet keine Ports. Sie baut nur ausgehende HTTPS-Verbindungen zu Spooly und für Updates zu GitHub auf.
+- Moonraker wird nur gelesen, nie gesteuert.
+- Der Key liegt in `.spooly-bridge.json` im Installationsordner und ist nur für den Besitzer lesbar.
+- Welche Daten übertragen werden, steht in der [Datenschutzerklärung von Spooly](https://spooly.eu/datenschutz), Abschnitt 8.8.
 
 ## Lizenz
 
