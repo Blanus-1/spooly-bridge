@@ -50,13 +50,18 @@ class SpoolyUploader:
         url = f"{self.basis_url}{pfad}"
         body = json.dumps(daten).encode("utf-8")
 
+        kopf = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if self.api_key:
+            # Spooly prueft den Key vor dem Body, sonst gilt fuer grosse Pushes nur das kleine Limit
+            kopf["X-Spooly-Bridge-Key"] = self.api_key
+
         anfrage = Request(
             url,
             data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            headers=kopf,
             method="POST",
         )
 
