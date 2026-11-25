@@ -1,0 +1,50 @@
+{
+  "_herkunft": "Bridge -> POST /klipper/push/live. Stand aus dem u1-companion-Protokoll 3.2 und dem Snapmaker-Quellcode wie frontend/src/lib/lan/u1State.test.ts (noch kein echter U1-Push). Nach dem ersten echten Push einer Bridge 1.6.0 durch den echten Stand ersetzen.",
+  "bridge_api_key": "spooly_br_TESTKEY0000000000000000",
+  "printer_id": null,
+  "status": {
+    "print_task_config": {
+      "filament_vendor": ["Snapmaker", "Snapmaker", "NONE", "Generic"],
+      "filament_type": ["PLA", "PETG", "NONE", "PLA"],
+      "filament_sub_type": ["Basic", "HF", "NONE", "Silk"],
+      "filament_color_rgba": ["000000FF", "D3232AFF", "FFFFFFFF", "1E88E5FF"],
+      "filament_official": [true, true, false, false],
+      "filament_sku": [12001, 13007, 0, 0],
+      "filament_exist": [true, true, false, true],
+      "extruder_map_table": [0, 1, 2, 3, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "reprint_info": {
+        "extruder_map_table": [3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      }
+    },
+    "print_stats": {
+      "state": "printing",
+      "filename": "benchy.gcode",
+      "print_duration": 900,
+      "info": { "current_layer": 80, "total_layer": 190 }
+    },
+    "virtual_sdcard": { "progress": 0.425 },
+    "toolhead": { "extruder": "extruder1" },
+    "display_status": { "progress": 0.4 }
+  },
+  "estimated_time": 3600,
+  "cover": null,
+  "_erwartet": {
+    "live": {
+      "state": "printing",
+      "filename": "benchy.gcode",
+      "progress": 42.5,
+      "print_duration": 900,
+      "remain_minutes": 34.5,
+      "active_head": 2,
+      "layer": 80,
+      "total_layer": 190
+    },
+    "koepfe": [
+      { "type": "PLA", "sub_type": "Basic", "vendor": "Snapmaker", "color": "#000000", "official": true, "sku": 12001, "exist": true },
+      { "type": "PETG", "sub_type": "HF", "vendor": "Snapmaker", "color": "#d3232a", "official": true, "sku": 13007, "exist": true },
+      { "type": null, "sub_type": null, "vendor": null, "color": "#ffffff", "official": false, "sku": null, "exist": false },
+      { "type": "PLA", "sub_type": "Silk", "vendor": "Generic", "color": "#1e88e5", "official": false, "sku": null, "exist": true }
+    ],
+    "tabelle_anfang": [3, 2, 1, 0]
+  }
+}

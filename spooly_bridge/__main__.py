@@ -160,6 +160,131 @@ def main():
     log.info("Bridge beendet.")
 
 
+# -- Live-Stand an Spooly ---------------------------
+
+# Waehrend eines Drucks lesen wir den Stand alle 5 s lokal, sonst alle 30 s.
+# Gesendet wird bei jeder Aenderung (Zustand, Kopf, Datei), dazwischen im
+# Takt, den Spooly in next_seconds vorgibt.
+LIVE_LESEN_DRUCK = 5
+LIVE_LESEN_RUHE = 30
+LIVE_SENDEN_STANDARD = 30
+LIVE_SENDEN_MIN = 10
+LIVE_SENDEN_MAX = 300
+LIVE_NACH_FEHLER = 30
+LIVE_PAUSE_404 = 30 * 60   # aelterer Server ohne die Route: erst spaeter wieder fragen
+LIVE_INFOS_NOCHMAL = 5 * 60
+COVER_MAX_BREITE = 400
+COVER_MAX_BYTES = 150 * 1024
+
+
+def _live_schluessel(status: dict):
+    """(Zustand, aktiver Kopf, Dateiname) aus dem Moonraker-Status."""
+    stats = status.get("print_stats") or {}
+    kopf = (status.get("toolhead") or {}).get("extruder")
+    return stats.get("state"), kopf, stats.get("filename") or ""
+
+
+def _next_seconds(antwort: dict) -> int:
+    try:
+        sekunden = int(antwort.get("next_seconds", LIVE_SENDEN_STANDARD))
+    except (TypeError, ValueError):
+        return LIVE_SENDEN_STANDARD
+    return max(LIVE_SENDEN_MIN, min(LIVE_SENDEN_MAX, sekunden))
+
+
+class LiveTakt:
+    """Liest den Druckerstand und schickt ihn an Spooly. tick() ruft die Schleife sekuendlich auf.
+
+    Alles hier ist Beiwerk: Fehler landen nur im Debug-Log, damit der
+    Druck-Import nie darunter leidet. Die Uhr ist austauschbar fuer Tests.
+    """
+
+    def __init__(self, poller, uploader, log, uhr=time.monotonic):
+        self.poller = poller
+        self.uploader = uploader
+        self.log = log
+        self.uhr = uhr
+        self._lesen_ab = 0.0
+        self._senden_ab = 0.0
+        self._sperre_bis = 0.0
+        self._letzter = None
+        self._offen = False
+        # Metadaten und Vorschaubild gelten je Datei
+        self._datei = None
+        self._infos_ab = 0.0
+        self._estimated = None
+        self._cover = None
+        self._cover_offen = False
+
+    def tick(self):
+        jetzt = self.uhr()
+        if jetzt < self._lesen_ab:
+            return
+        self._lesen_ab = jetzt + LIVE_LESEN_RUHE
+        try:
+            self._durchlauf(jetzt)
+        except Exception as fehler:
+            self.log.debug("Live-Stand uebersprungen: %s", fehler)
+
+    def _durchlauf(self, jetzt):
+        status = self.poller.stand()
+        if not status:
+            return
+        schluessel = _live_schluessel(status)
+        aktiv = schluessel[0] in ("printing", "paused")
+        if aktiv:
+            self._lesen_ab = jetzt + LIVE_LESEN_DRUCK
+        if schluessel != self._letzter:
+            self._letzter = schluessel
+            self._offen = True
+        if jetzt < self._sperre_bis:
+            return
+        if not (self._offen or (aktiv and jetzt >= self._senden_ab)):
+            return
+        self._senden(status, schluessel[2], jetzt)
+
+    def _senden(self, status, datei, jetzt):
+        if datei and datei != self._datei and jetzt >= self._infos_ab:
+            self._infos_holen(datei, jetzt)
+        cover = self._cover if self._cover_offen else None
+        antwort = self.uploader.live_senden(
+            status, estimated_time=self._estimated if datei else None, cover=cover
+        )
+        if self.uploader.letzter_status == 404:
+            self.log.debug("Spooly kennt den Live-Stand noch nicht - erst in 30 Minuten wieder")
+            self._offen = False
+            self._lesen_ab = jetzt + LIVE_PAUSE_404
+            return
+        if not antwort or antwort.get("success") is False:
+            self._sperre_bis = jetzt + LIVE_NACH_FEHLER
+            return
+        self._offen = False
+        self._cover_offen = False
+        self._senden_ab = jetzt + _next_seconds(antwort)
+
+    def _infos_holen(self, datei, jetzt):
+        """Restzeit und Vorschaubild der Datei, einmal je Datei."""
+        self._estimated = None
+        self._cover = None
+        self._cover_offen = False
+        # sperren=False: fehlt die Datei, bleibt der Metadaten-Endpoint fuer den Import an
+        meta = self.poller.datei_metadaten(datei, sperren=False)
+        if not meta:
+            # nicht gleich wieder fragen, aber auch nicht fuer immer aufgeben
+            self._infos_ab = jetzt + LIVE_INFOS_NOCHMAL
+            return
+        self._datei = datei
+        zeit = meta.get("estimated_time")
+        if isinstance(zeit, (int, float)) and not isinstance(zeit, bool):
+            self._estimated = zeit
+        bild = self.poller.thumbnail_laden(meta, max_breite=COVER_MAX_BREITE)
+        if bild and not bild.startswith("data:"):
+            bild = "data:image/png;base64," + bild
+        if bild and len(bild) <= COVER_MAX_BYTES:
+            self._cover = bild
+            self._cover_offen = True
+
+
 # -- WebSocket-Modus (On-Demand, kein Polling) --------------
 
 # Reconnect-Backoff: 5s -> 10s -> 20s -> 40s -> 80s -> 120s (gedeckelt)
@@ -188,6 +313,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn, config_pfa
 
     log.info("WebSocket-Modus aktiv - Jobs werden sofort erkannt")
 
+    takt = LiveTakt(poller, uploader, log)
     letzter_heartbeat = 0
     # Heartbeat alle 4 Minuten - bewusst unter der 5-Minuten-Offline-Schwelle
     # des Backends, damit ein laufender Reconnect-Versuch den Heartbeat nicht
@@ -242,6 +368,8 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn, config_pfa
             else:
                 time.sleep(1)  # nicht busy-warten bis zum naechsten Versuch
 
+        takt.tick()
+
         # Periodischer Heartbeat (alle 5 Min, prueft auch force_reimport)
         if jetzt - letzter_heartbeat >= heartbeat_intervall:
             if _sende_heartbeat(poller, uploader, log, config_pfad):
@@ -272,6 +400,7 @@ def _starte_websocket_modus(poller, uploader, config, log, laeuft_fn, config_pfa
 def _starte_polling_modus(poller, uploader, config, log, laeuft_fn, config_pfad=None):
     """Klassischer Polling-Modus als Fallback wenn WebSocket nicht verfuegbar."""
 
+    takt = LiveTakt(poller, uploader, log)
     while laeuft_fn():
         _sende_heartbeat(poller, uploader, log, config_pfad)
         _sync_neue_jobs(poller, uploader, log)
@@ -294,6 +423,7 @@ def _starte_polling_modus(poller, uploader, config, log, laeuft_fn, config_pfad=
         for _ in range(config.intervall):
             if not laeuft_fn():
                 break
+            takt.tick()
             time.sleep(1)
 
 

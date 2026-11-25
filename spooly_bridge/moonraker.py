@@ -155,8 +155,25 @@ class MoonrakerPoller:
             while len(self._gesendete_job_ids) > 400:
                 self._gesendete_job_ids.pop()
 
-    def datei_metadaten(self, dateiname: str) -> dict:
-        """G-Code Metadaten einer Datei abrufen (Filament-Infos, Thumbnails)."""
+    def stand(self) -> Optional[dict]:
+        """Live-Stand fuer Spooly: das 'status'-Feld aus /printer/objects/query.
+
+        Objekte, die der Drucker nicht kennt (print_task_config gibt es nur
+        beim U1), fehlen einfach in der Antwort.
+        """
+        ergebnis = self._get(
+            "/printer/objects/query"
+            "?print_task_config&print_stats&virtual_sdcard&toolhead=extruder&display_status"
+        )
+        status = ergebnis.get("status") if isinstance(ergebnis, dict) else None
+        return status if isinstance(status, dict) else None
+
+    def datei_metadaten(self, dateiname: str, sperren: bool = True) -> dict:
+        """G-Code Metadaten einer Datei abrufen (Filament-Infos, Thumbnails).
+
+        sperren=False: ein 404 heisst nur "diese Datei gibt es nicht mehr" und
+        schaltet den Endpoint nicht fuer alle weiteren Jobs ab.
+        """
         # Cache: Wenn Metadata-Endpoint nicht verfuegbar ist (z.B. Snapmaker),
         # nicht bei jedem Job erneut abfragen
         if "metadata" in self._nicht_verfuegbar:
@@ -164,7 +181,7 @@ class MoonrakerPoller:
         ergebnis = self._get("/server/files/metadata", {"filename": dateiname})
         if ergebnis is None:
             # Nur 404 sperrt dauerhaft, ein Netzfehler oder Timeout versuchen wir wieder
-            if self.letzter_status == 404:
+            if sperren and self.letzter_status == 404:
                 self._nicht_verfuegbar.add("metadata")
                 log.info("Metadaten-Endpoint nicht verfuegbar - wird fuer diese Sitzung uebersprungen")
             return {}
@@ -183,12 +200,15 @@ class MoonrakerPoller:
             return None
         return ergebnis
 
-    def thumbnail_laden(self, metadaten: dict) -> Optional[str]:
+    def thumbnail_laden(self, metadaten: dict, max_breite: Optional[int] = None) -> Optional[str]:
         """
         Groesstmoegliches Thumbnail aus den Metadaten als Base64 laden.
         Thumbnails liegen als Dateien unter .thumbs/ im gcodes-Root.
+        Mit max_breite zaehlen nur Bilder bis zu dieser Breite.
         """
         thumbnails = metadaten.get("thumbnails", [])
+        if max_breite:
+            thumbnails = [t for t in thumbnails if 0 < (t.get("width") or 0) <= max_breite]
         if not thumbnails:
             return None
 

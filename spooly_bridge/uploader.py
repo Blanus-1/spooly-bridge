@@ -152,3 +152,24 @@ class SpoolyUploader:
         })
 
         return ergebnis
+
+    def live_senden(
+        self,
+        status: dict,
+        drucker_id: str = None,
+        estimated_time: float = None,
+        cover: str = None,
+    ) -> Optional[dict]:
+        """
+        Live-Stand des Druckers senden (roher Moonraker-Status).
+
+        Antwort: {"success": True, "next_seconds": N}. Bei 404 kennt der
+        Server die Route noch nicht, das sieht der Aufrufer an letzter_status.
+        """
+        return self._post("/klipper/push/live", {
+            "bridge_api_key": self.api_key,
+            "printer_id": drucker_id,
+            "status": status,
+            "estimated_time": estimated_time,
+            "cover": cover,
+        })
