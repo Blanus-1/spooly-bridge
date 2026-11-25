@@ -448,14 +448,7 @@ def _sync_neue_jobs(poller, uploader, log):
 
         # Rohe G-Code-Metadaten mitschicken (ohne Thumbnails/Bilder)
         # Dient zur Analyse welche Felder der Drucker tatsaechlich liefert
-        raw_meta = {}
-        for k, v in metadaten.items():
-            if k == "thumbnails":
-                raw_meta[k] = f"[{len(v)} thumbnails]" if isinstance(v, list) else str(v)[:100]
-            elif isinstance(v, str) and len(v) > 500:
-                raw_meta[k] = v[:500] + "...[truncated]"
-            else:
-                raw_meta[k] = v
+        raw_meta = _roh_metadaten(metadaten)
 
         aufbereitete_jobs.append({
             "job_id": str(job.get("job_id", "")),
@@ -487,6 +480,24 @@ def _sync_neue_jobs(poller, uploader, log):
         log.warning("Spooly nicht erreichbar - naechster Versuch spaeter")
     else:
         log.warning("Spooly-Fehler: %s", ergebnis)
+
+
+def _roh_metadaten(metadaten: dict) -> dict:
+    """Rohe G-Code-Metadaten ohne Bilder, lange Texte werden gekuerzt.
+
+    Bei Mehrfarb-Drucken stehen die Filament-Listen (filament_type,
+    filament_colour, ...) als ein langer String da, die duerfen laenger bleiben.
+    """
+    raw_meta = {}
+    for k, v in metadaten.items():
+        grenze = 4000 if "filament" in k else 500
+        if k == "thumbnails":
+            raw_meta[k] = f"[{len(v)} thumbnails]" if isinstance(v, list) else str(v)[:100]
+        elif isinstance(v, str) and len(v) > grenze:
+            raw_meta[k] = v[:grenze] + "...[truncated]"
+        else:
+            raw_meta[k] = v
+    return raw_meta
 
 
 def _metadaten_aufbereiten(meta: dict) -> dict:
