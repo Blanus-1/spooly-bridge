@@ -12,7 +12,7 @@ Sicherheit:
 
 import json
 import logging
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlencode, quote
@@ -99,7 +99,7 @@ class MoonrakerPoller:
         """
         return self._get("/server/info")
 
-    def erreichbarkeit(self) -> tuple[bool, Optional[str]]:
+    def erreichbarkeit(self) -> Tuple[bool, Optional[str]]:
         """(Moonraker erreichbar?, Klippy-Zustand).
 
         Der Erreichbarkeits-Check hing frueher an /printer/info und damit an
