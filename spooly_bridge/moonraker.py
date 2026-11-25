@@ -31,6 +31,8 @@ class MoonrakerPoller:
 
     def __init__(self, basis_url: str = "http://localhost:7125"):
         self.basis_url = self._normalisiere_url(basis_url)
+        # HTTP-Status der letzten Anfrage (None = keine Antwort)
+        self.letzter_status: Optional[int] = None
         # IDs der bereits an Spooly gemeldeten Jobs (persistent im Speicher)
         self._gesendete_job_ids: set = set()
         # Cache fuer Features die nicht verfuegbar sind (z.B. Spoolman nicht installiert)
@@ -62,13 +64,16 @@ class MoonrakerPoller:
             url += "?" + urlencode(params, quote_via=quote)
 
         anfrage = Request(url, headers={"Accept": "application/json"})
+        self.letzter_status = None
         try:
             with urlopen(anfrage, timeout=TIMEOUT) as antwort:
+                self.letzter_status = antwort.status
                 daten = json.loads(antwort.read())
                 if isinstance(daten, dict) and "result" in daten:
                     return daten["result"]
                 return daten
         except HTTPError as fehler:
+            self.letzter_status = fehler.code
             if fehler.code == 404:
                 log.debug("Nicht verfuegbar: %s (404)", pfad)
             else:
@@ -158,8 +163,10 @@ class MoonrakerPoller:
             return {}
         ergebnis = self._get("/server/files/metadata", {"filename": dateiname})
         if ergebnis is None:
-            self._nicht_verfuegbar.add("metadata")
-            log.info("Metadaten-Endpoint nicht verfuegbar - wird fuer diesen Zyklus uebersprungen")
+            # Nur 404 sperrt dauerhaft, ein Netzfehler oder Timeout versuchen wir wieder
+            if self.letzter_status == 404:
+                self._nicht_verfuegbar.add("metadata")
+                log.info("Metadaten-Endpoint nicht verfuegbar - wird fuer diese Sitzung uebersprungen")
             return {}
         return ergebnis if isinstance(ergebnis, dict) else {}
 
@@ -170,8 +177,9 @@ class MoonrakerPoller:
             return None
         ergebnis = self._get("/server/spoolman/spool_id")
         if ergebnis is None:
-            self._nicht_verfuegbar.add("spoolman")
-            log.info("Spoolman nicht installiert - wird fuer diese Sitzung uebersprungen")
+            if self.letzter_status == 404:
+                self._nicht_verfuegbar.add("spoolman")
+                log.info("Spoolman nicht installiert - wird fuer diese Sitzung uebersprungen")
             return None
         return ergebnis
 
