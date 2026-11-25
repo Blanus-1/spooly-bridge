@@ -13,6 +13,7 @@ import os
 import signal
 import subprocess
 import shutil
+import socket
 import sys
 import time
 from pathlib import Path
@@ -285,6 +286,49 @@ class LiveTakt:
             self._cover_offen = True
 
 
+def _lan_ip():
+    """IPv4, mit der der Drucker ins Netz geht. connect() auf UDP sendet nichts."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+        finally:
+            sock.close()
+    except OSError:
+        return None
+    return None if ip.startswith("0.") else ip
+
+
+DROPBEAR_VERZEICHNIS = "/etc/dropbear"
+
+
+def _ssh_server_info(verzeichnis: str = DROPBEAR_VERZEICHNIS):
+    """Host-Key-Dateien und Version des dropbear-Servers, None wenn es keinen gibt.
+
+    Spooly sieht daran, welche Schluesselarten der SSH-Server des Druckers kann.
+    """
+    info = {}
+    try:
+        schluessel = sorted(n for n in os.listdir(verzeichnis) if "host_key" in n)
+        if schluessel:
+            info["host_keys"] = schluessel[:10]
+    except OSError:
+        pass
+    try:
+        if shutil.which("dropbear"):
+            # dropbear -V schreibt die Version auf stderr
+            lauf = subprocess.run(
+                ["dropbear", "-V"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3
+            )
+            zeilen = (lauf.stderr or lauf.stdout).decode("utf-8", "replace").strip().splitlines()
+            if zeilen:
+                info["version"] = zeilen[0][:200]
+    except Exception:
+        pass
+    return {"ssh_server": info} if info else None
+
+
 # -- WebSocket-Modus (On-Demand, kein Polling) --------------
 
 # Reconnect-Backoff: 5s -> 10s -> 20s -> 40s -> 80s -> 120s (gedeckelt)
@@ -522,6 +566,9 @@ def _sende_heartbeat(poller, uploader, log, config_pfad=None):
     # Drucker-Kontakt (falsche URL, falscher Rechner) auch so anzeigen kann.
     # Erreichbarkeit kommt aus /server/info, NICHT aus drucker_info: letzteres
     # haengt an Klippy und war rot, waehrend die Bridge Jobs hochlud.
+    lan_ip = _lan_ip()
+    diagnostics = _ssh_server_info()
+
     def senden():
         return uploader.heartbeat(
             drucker_name=drucker_info.get("hostname", "Klipper") if drucker_info else "Klipper",
@@ -530,6 +577,8 @@ def _sende_heartbeat(poller, uploader, log, config_pfad=None):
             moonraker_url=poller.basis_url,
             moonraker_erreichbar=erreichbar,
             klippy_zustand=klippy_zustand,
+            lan_ip=lan_ip,
+            diagnostics=diagnostics,
         )
 
     ergebnis = senden()

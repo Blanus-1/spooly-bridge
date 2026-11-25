@@ -96,6 +96,8 @@ class SpoolyUploader:
         moonraker_url: str = None,
         moonraker_erreichbar: bool = None,
         klippy_zustand: str = None,
+        lan_ip: str = None,
+        diagnostics: dict = None,
     ) -> Optional[dict]:
         """
         Heartbeat an Spooly senden.
@@ -125,6 +127,10 @@ class SpoolyUploader:
             payload["moonraker_reachable"] = moonraker_erreichbar
         if klippy_zustand:
             payload["klippy_state"] = klippy_zustand
+        if lan_ip:
+            payload["lan_ip"] = lan_ip
+        if diagnostics:
+            payload["diagnostics"] = diagnostics
         return self._post("/klipper/bridge/heartbeat", payload)
 
     def jobs_senden(
