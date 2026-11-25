@@ -46,6 +46,7 @@ Voraussetzung ist Python 3.8 oder neuer, bei Klipper-Systemen ist das ab Werk da
 - **Updates:** Neue Versionen installiert sie selbst, sie kommen direkt aus diesem Repository.
 - **Umzug:** Wechselt dein Konto zwischen dev.spooly.eu und spooly.eu, findet die Bridge das neue Ziel ohne Neuinstallation.
 - **Status:** In Spooly siehst du unter Schritt 3, ob die Bridge online ist, welche Version läuft und wo sie installiert ist.
+- **Live-Stand:** Während ein Druck läuft, zeigt Spooly Fortschritt, Schicht, aktiven Kopf und Vorschaubild. Ab Version 1.6.0.
 
 ## Snapmaker U1: was am Drucker geändert wird
 
@@ -76,6 +77,8 @@ Das entfernt Autostart, Konfiguration und Log.
 
 - Die Bridge öffnet keine Ports. Sie baut nur ausgehende HTTPS-Verbindungen zu Spooly und für Updates zu GitHub auf.
 - Moonraker wird nur gelesen, nie gesteuert.
+- Während eines Drucks geht etwa alle 30 Sekunden der aktuelle Stand (Zustand, Fortschritt, Schicht, aktiver Kopf, Vorschaubild) an Spooly. Dafür liest die Bridge Moonraker weiterhin nur.
+- Im Heartbeat steht die lokale IP des Druckers, dazu bei Dropbear-Systemen die Namen der SSH-Host-Key-Dateien und die Dropbear-Version.
 - Der Key liegt in `.spooly-bridge.json` im Installationsordner und ist nur für den Besitzer lesbar.
 - Welche Daten übertragen werden, steht in der [Datenschutzerklärung von Spooly](https://spooly.eu/datenschutz), Abschnitt 8.8.
 
