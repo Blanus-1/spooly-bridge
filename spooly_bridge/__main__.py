@@ -301,12 +301,33 @@ def _lan_ip():
 
 
 DROPBEAR_VERZEICHNIS = "/etc/dropbear"
+DROPBEAR_PFADE = ("/usr/sbin/dropbear", "/usr/bin/dropbear", "/sbin/dropbear")
+# Verfahren, nach denen wir im dropbear-Programm suchen: die iOS-App kann nur AES-GCM,
+# und das ist bei dropbear ab Werk aus
+SSH_VERFAHREN = (
+    "aes128-gcm@openssh.com",
+    "aes256-gcm@openssh.com",
+    "chacha20-poly1305@openssh.com",
+    "aes128-ctr",
+    "curve25519-sha256",
+    "ecdh-sha2-nistp256",
+    "ssh-ed25519",
+    "ecdsa-sha2-nistp256",
+    "rsa-sha2-256",
+)
 
 
-def _ssh_server_info(verzeichnis: str = DROPBEAR_VERZEICHNIS):
-    """Host-Key-Dateien und Version des dropbear-Servers, None wenn es keinen gibt.
+def _dropbear_pfad():
+    pfad = shutil.which("dropbear")
+    if pfad:
+        return pfad
+    return next((p for p in DROPBEAR_PFADE if os.path.exists(p)), None)
 
-    Spooly sieht daran, welche Schluesselarten der SSH-Server des Druckers kann.
+
+def _ssh_server_info(verzeichnis: str = DROPBEAR_VERZEICHNIS, programm: str = None):
+    """Host-Key-Dateien, Version und eingebaute Verfahren des dropbear-Servers, None wenn es keinen gibt.
+
+    Spooly sieht daran, ob die App sich per SSH mit dem Drucker verstaendigen kann.
     """
     info = {}
     try:
@@ -315,16 +336,23 @@ def _ssh_server_info(verzeichnis: str = DROPBEAR_VERZEICHNIS):
             info["host_keys"] = schluessel[:10]
     except OSError:
         pass
+    pfad = programm or _dropbear_pfad()
+    if not pfad:
+        return {"ssh_server": info} if info else None
     try:
-        if shutil.which("dropbear"):
-            # dropbear -V schreibt die Version auf stderr
-            lauf = subprocess.run(
-                ["dropbear", "-V"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3
-            )
-            zeilen = (lauf.stderr or lauf.stdout).decode("utf-8", "replace").strip().splitlines()
-            if zeilen:
-                info["version"] = zeilen[0][:200]
+        # dropbear -V schreibt die Version auf stderr
+        lauf = subprocess.run([pfad, "-V"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
+        zeilen = (lauf.stderr or lauf.stdout).decode("utf-8", "replace").strip().splitlines()
+        if zeilen:
+            info["version"] = zeilen[0][:200]
     except Exception:
+        pass
+    try:
+        # die Namen der einkompilierten Verfahren stehen als Text im Programm
+        with open(pfad, "rb") as f:
+            inhalt = f.read(8 * 1024 * 1024)
+        info["algos"] = [v for v in SSH_VERFAHREN if v.encode() in inhalt]
+    except OSError:
         pass
     return {"ssh_server": info} if info else None
 

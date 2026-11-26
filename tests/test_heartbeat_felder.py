@@ -29,22 +29,26 @@ class TestLanIp(unittest.TestCase):
 
 
 class TestSshServer(unittest.TestCase):
-    def test_host_keys_und_version(self):
+    def test_host_keys_version_und_verfahren(self):
         with tempfile.TemporaryDirectory() as d:
             for name in ("dropbear_ed25519_host_key", "dropbear_rsa_host_key", "authorized_keys"):
                 open(os.path.join(d, name), "w").close()
+            programm = os.path.join(d, "dropbear")
+            with open(programm, "wb") as f:
+                f.write(b"\x7fELF\x00chacha20-poly1305@openssh.com\x00aes128-ctr\x00ssh-ed25519\x00")
             lauf = mock.Mock(stderr=b"Dropbear v2022.83\nzweite Zeile", stdout=b"")
-            with mock.patch("spooly_bridge.__main__.shutil.which", return_value="/usr/sbin/dropbear"), \
-                    mock.patch("spooly_bridge.__main__.subprocess.run", return_value=lauf):
-                info = _ssh_server_info(d)
+            with mock.patch("spooly_bridge.__main__.subprocess.run", return_value=lauf):
+                info = _ssh_server_info(d, programm=programm)
         self.assertEqual(info, {"ssh_server": {
             "host_keys": ["dropbear_ed25519_host_key", "dropbear_rsa_host_key"],
             "version": "Dropbear v2022.83",
+            "algos": ["chacha20-poly1305@openssh.com", "aes128-ctr", "ssh-ed25519"],
         }})
 
     def test_ohne_dropbear_nichts(self):
         with tempfile.TemporaryDirectory() as d:
-            with mock.patch("spooly_bridge.__main__.shutil.which", return_value=None):
+            with mock.patch("spooly_bridge.__main__.shutil.which", return_value=None), \
+                    mock.patch("spooly_bridge.__main__.os.path.exists", return_value=False):
                 self.assertIsNone(_ssh_server_info(os.path.join(d, "gibt-es-nicht")))
 
     def test_fehler_beim_aufruf_bleibt_still(self):
