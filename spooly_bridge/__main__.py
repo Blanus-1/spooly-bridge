@@ -302,13 +302,17 @@ def _lan_ip():
 
 DROPBEAR_VERZEICHNIS = "/etc/dropbear"
 DROPBEAR_PFADE = ("/usr/sbin/dropbear", "/usr/bin/dropbear", "/sbin/dropbear")
-# Verfahren, nach denen wir im dropbear-Programm suchen: die iOS-App kann nur AES-GCM,
-# und das ist bei dropbear ab Werk aus
+# Verfahren, nach denen wir im dropbear-Programm suchen: Die App muss mit dem dropbear
+# des Druckers ein gemeinsames Verfahren finden (AES-GCM ist bei dropbear ab Werk aus)
 SSH_VERFAHREN = (
     "aes128-gcm@openssh.com",
     "aes256-gcm@openssh.com",
     "chacha20-poly1305@openssh.com",
     "aes128-ctr",
+    "aes256-ctr",
+    "hmac-sha2-256",
+    "hmac-sha2-512",
+    "hmac-sha1",
     "curve25519-sha256",
     "ecdh-sha2-nistp256",
     "ssh-ed25519",
