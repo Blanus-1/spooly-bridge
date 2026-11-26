@@ -317,6 +317,17 @@ SSH_VERFAHREN = (
 )
 
 
+_SSH_INFO = {}
+
+
+def _ssh_server_info_einmal():
+    """SSH-Infos nur einmal je Start lesen (das dropbear-Programm durchsuchen kostet), danach aus dem Speicher.
+    Ein Firmware-Update startet den Drucker neu, dann wird neu gelesen."""
+    if "info" not in _SSH_INFO:
+        _SSH_INFO["info"] = _ssh_server_info()
+    return _SSH_INFO["info"]
+
+
 def _dropbear_pfad():
     pfad = shutil.which("dropbear")
     if pfad:
@@ -595,7 +606,7 @@ def _sende_heartbeat(poller, uploader, log, config_pfad=None):
     # Erreichbarkeit kommt aus /server/info, NICHT aus drucker_info: letzteres
     # haengt an Klippy und war rot, waehrend die Bridge Jobs hochlud.
     lan_ip = _lan_ip()
-    diagnostics = _ssh_server_info()
+    diagnostics = _ssh_server_info_einmal()
 
     def senden():
         return uploader.heartbeat(
